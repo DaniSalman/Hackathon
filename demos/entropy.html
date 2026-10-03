@@ -86,7 +86,7 @@ button { font: inherit; }
   display: grid; place-items: center; font: 18px/1 var(--serif); margin-top: 2px; }
 .scene h3 { margin: 2px 0 4px; font-size: 22px; }
 .caption { color: var(--ink2); margin: 0; max-width: 72ch; }
-.scenes.walkthrough .scene { display: grid; grid-template-columns: minmax(230px, 330px) minmax(0, 1fr); gap: 22px; align-items: start; }
+.scenes.walkthrough .scene .viz { margin-top: 16px; }
 .scenes.walkthrough .scene + .scene::before { content: ""; position: absolute; left: 36px; top: -23px; height: 22px; width: 1.5px; background: linear-gradient(var(--line2), var(--blue)); }
 .scenes.explorer .scene .viz { margin-top: 16px; }
 .viz { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: flex-start; min-width: 0; }
@@ -198,7 +198,7 @@ input.num { -moz-appearance: textfield; }
 .vrow .vl { font-size: 13px; color: var(--ink2); text-align: right; }
 .vrow input.num { width: 62px; }
 .vsum { font-size: 12px; color: var(--mute); text-align: right; margin-top: 2px; font-family: var(--mono); }
-.mtx-wrap { display: flex; align-items: center; gap: 6px; margin-top: 4px; overflow-x: auto; }
+.mtx-wrap { display: flex; align-items: center; gap: 6px; margin-top: 4px; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 .mtx { display: inline-grid; gap: 4px; padding: 5px 9px; position: relative; }
 .mtx::before, .mtx::after { content: ""; position: absolute; top: 0; bottom: 0; width: 7px; border: 2px solid var(--c); }
 .mtx::before { left: 0; border-right: none; }
@@ -317,7 +317,7 @@ input.num { -moz-appearance: textfield; }
 .tip .tm { color: var(--mute); font-size: 12px; }
 
 /* ---------- responsive ---------- */
-@media (max-width: 1180px) { .scenes.walkthrough .scene { grid-template-columns: 1fr; gap: 14px; } .scenes.walkthrough .scene + .scene::before { left: 37px; } }
+@media (min-width: 1680px) { .scenes.walkthrough .scene { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 24px; align-items: start; } .scenes.walkthrough .scene .viz { margin-top: 0; } }
 @media (max-width: 900px) {
   .playground { grid-template-columns: 1fr; }
   .side { position: static; max-height: none; }
