@@ -1,0 +1,172 @@
+<content>
+{
+  "title": "Entropy from raw weights: how uncertain is one draw, in bits?",
+  "hook": "Two outcomes with weights 3 and 1. Now double both: 6 and 2. Does the answer surprise you any more than before?",
+  "why": "Entropy is one number for a whole distribution: the average surprise of the next outcome, measured in bits. Because it depends only on probabilities, you can start from any nonnegative weights {w_i} and turn them into probabilities by dividing by their total {S}.",
+  "symbols": [
+    {"key": "w_i", "meaning": "raw nonnegative weight of outcome i", "color": "blue"},
+    {"key": "S", "meaning": "total weight, the sum of all {w_i}", "color": "teal"},
+    {"key": "n", "meaning": "number of active outcomes", "color": "green"},
+    {"key": "p_i", "meaning": "probability of outcome i, {w_i} divided by {S}", "color": "purple"},
+    {"key": "H", "meaning": "entropy: average surprise of one outcome, in bits", "color": "yellow"}
+  ],
+  "scenes": [
+    {
+      "id": "s1",
+      "title": "Weights first: any nonnegative numbers",
+      "caption": "{n} outcomes, each with a weight {w_i} that may be any nonnegative number. **Drag the bars** (or the sliders in the sidebar). Weights do not have to sum to anything — a weight of 0 is allowed. The panel on the right shows the total {S} = Σ {w_i}.",
+      "pause": "I double every weight, from 3 and 1 to 6 and 2. Does that make the next outcome any more uncertain?"
+    },
+    {
+      "id": "s2",
+      "title": "Divide by the total: probabilities",
+      "caption": "Divide each weight by the total to get a probability: {p_i} = {w_i} / {S}. The bars now fill exactly to 1, and the dashed line is the uniform value 1/{n}. Doubling every weight doubles {S} and each {w_i}, so no {p_i} moves.",
+      "pause": "What happens to the probabilities when one weight is 0, and when all {n} weights are equal?"
+    },
+    {
+      "id": "s3",
+      "title": "Each outcome's share of surprise",
+      "caption": "An outcome with probability {p_i} carries surprise −log₂ {p_i} bits. Its share of the average is that surprise times how often it happens: −{p_i} log₂ {p_i}. Every share lies on one curve, drawn on the right with one marker per outcome. A weight of 0 gives {p_i} = 0 and a share of exactly 0 bits.",
+      "pause": "How many bits can a single outcome contribute at most, and where is the peak of that curve?"
+    },
+    {
+      "id": "s4",
+      "title": "Add the shares: entropy {H}",
+      "caption": "Summing all shares gives the entropy {H}, in bits. It reads 0 when one weight is positive and the rest are 0, and it reaches its maximum log₂ {n} bits when every {p_i} equals 1/{n}. The formula line shows the actual sum of the shares on screen."
+    }
+  ],
+  "equation": "{p_i} = {w_i} / {S},   {S} = Σ {w_i},   {H} = −Σ {p_i} log₂ {p_i}",
+  "equation_words": "Divide each weight {w_i} by the total {S} to get {p_i}. Weight each outcome's surprise, −log₂ {p_i}, by its probability {p_i}, then add all those shares to get {H}.",
+  "explorations": [
+    {
+      "title": "One certain outcome means zero bits",
+      "focus": "s4",
+      "predict": "Set {n} = 4 with weights 3, 0, 0, 0. How many bits do you learn from seeing which outcome happened?",
+      "change": "Press the preset: {n} = 4, weights {w_i} = 3, 0, 0, 0 (any positive first weight and three zeros behaves the same).",
+      "preset": {"n": 4, "w": [3, 0, 0, 0, 1, 1, 1, 1]},
+      "observe": "The probability panel shows {p_i} = 1, 0, 0, 0 and {S} = 3. Every share bar reads 0.000 bits and the gauge shows {H} = 0 bits.",
+      "why": "For the certain outcome, −1 · log₂ 1 = 0. For the three impossible ones, {p_i} = 0 and the convention 0 · log 0 = 0 (the limit of −p log₂ p as p → 0) makes their shares 0 too. So the total is exactly 0 bits."
+    },
+    {
+      "title": "Equal weights give the largest {H}",
+      "focus": "s4",
+      "predict": "With {n} = 4, which choice of weights makes {H} as large as possible, and how large is it?",
+      "change": "Press the preset: {n} = 4, all four weights equal to 1.",
+      "preset": {"n": 4, "w": [1, 1, 1, 1, 1, 1, 1, 1]},
+      "observe": "{S} = 4, every probability bar sits exactly on the uniform line at {p_i} = 0.25, each share is 0.500 bits, and {H} = 2.000 bits — the gauge is full, since log₂ 4 = 2. Now try weights 2, 2, 2, 2: {S} = 8, the probabilities do not move, and {H} still reads 2.000 bits.",
+      "why": "For a fixed {n}, entropy is largest, equal to log₂ {n}, when all {p_i} = 1/{n}: each outcome adds −0.25 · log₂ 0.25 = 0.5 bits, and four of them make 2 bits. Only the ratios of the weights matter, so 1,1,1,1 and 2,2,2,2 give the same {H}."
+    }
+  ],
+  "takeaway": "Normalize your nonnegative weights once, {p_i} = {w_i} / {S}, and entropy is the sum of the shares −{p_i} log₂ {p_i}. It is 0 bits when one outcome is certain and peaks at log₂ {n} bits when all {n} outcomes are equally likely. Scale all weights up or down and {H} does not change.",
+  "misconception": "Entropy does not measure the size of the weights, and it is not a property of a single outcome. Doubling every {w_i} leaves {H} unchanged, and adding extra outcomes with weight 0 leaves {H} unchanged. Also, one share −{p_i} log₂ {p_i} is largest at {p_i} = 1/e ≈ 0.37 (about 0.53 bits), not at {p_i} = 0.5 — yet the total {H} is largest when all outcomes are equally likely.",
+  "grounding": {
+    "paper": "C. E. Shannon, A Mathematical Theory of Communication (1948)",
+    "section": "Part I, Section 6: Choice, Uncertainty and Entropy",
+    "equation": "Theorem 2: H = −K Σ pᵢ log pᵢ",
+    "from_paper": [
+      "For a discrete distribution p₁,…,pₙ, the entropy with base-two logarithms is H = −Σᵢ pᵢ log₂ pᵢ (Section 6).",
+      "A zero-probability term contributes zero, by continuity.",
+      "A certain outcome has zero entropy.",
+      "Uniform probabilities maximize entropy for a fixed number of outcomes, giving log₂ n bits."
+    ],
+    "simplifications": [
+      "The supplied excerpt is a practice paraphrase of Section 6, not a verbatim quotation.",
+      "Shannon writes H = −K Σ pᵢ log pᵢ with K a positive constant; we take K = 1 and base-two logarithms, so H is in bits.",
+      "The paper works directly with probabilities. The raw weights {w_i}, the total {S}, the n-outcome interface and the divide-by-{S} step are our interface, chosen so weights can be edited freely and need not sum to 1.",
+      "Outcome labels x₁…x₈, the default weights 3,1,1,1 and the uniform reference line are our example, not from the paper.",
+      "The curve −p log₂ p, the share bars and the gauge readout are our visualizations.",
+      "When every weight is 0 there is no distribution; the page falls back to equal weights 1/{n} and says so. The paper does not define this case."
+    ]
+  }
+}
+</content>
+<controls>
+[
+  {"id": "n", "type": "slider", "label": "number of active outcomes {n}", "sym": "n", "min": 2, "max": 8, "step": 1, "value": 4, "help": "Extra outcomes beyond the first {n} are ignored."},
+  {"id": "w", "type": "vector", "label": "raw weights {w_i} (nonnegative; drag the bars)", "sym": "w_i", "length": "n", "min": 0, "max": 4, "step": 0.25, "value": [3, 1, 1, 1, 1, 1, 1, 1]}
+]
+</controls>
+<compute>
+function compute(s) {
+  const n = Math.max(2, Math.round(s.n));
+  let w = (s.w || []).slice(0, n).map(x => Math.max(0, (typeof x === 'number' && isFinite(x)) ? x : 0));
+  while (w.length < n) w.push(0);
+  let S = M.sum(w);
+  const allZero = !(S > 0);
+  if (allZero) { w = w.map(() => 1); S = M.sum(w); }
+  const p = w.map(x => x / S);
+  const contrib = p.map(x => -M.xlog2x(x));          // 0·log 0 = 0
+  const H = M.sum(contrib);
+  const Hmax = Math.log2(n);
+  const labels = p.map((_, i) => 'x' + M.subDigits(i + 1));
+  const peakAt = 1 / Math.E;
+  const peak = -M.xlog2x(peakAt);                    // ≈ 0.5307 bits
+  return { n, w, S, p, contrib, H, Hmax, labels, allZero, peak, peakAt };
+}
+</compute>
+<render>
+function render(s, r, kit) {
+  kit.bars('#s1', r.w, { bind: 'w', sym: 'w_i', labels: r.labels, axis: 'outcome', decimals: 2, min: 0, max: 4,
+    width: 0.66, unit: 'weight', title: 'Raw weights {w_i} — drag any bar' });
+  kit.readout('#s1', { width: 0.33, label: 'Total weight {S}', value: r.S, sym: 'S', unit: 'weight', decimals: 2, min: 0, max: 32,
+    note: 'Only the ratios of {w_i} matter, because {p_i} = {w_i} / {S}.' });
+
+  kit.bars('#s2', r.p, { sym: 'p_i', labels: r.labels, axis: 'outcome', decimals: 3, min: 0, max: 1, width: 0.6,
+    title: 'Probabilities {p_i} = {w_i} / {S}', ref: { y: 1 / r.n, label: 'uniform 1/{n}' } });
+  kit.steps('#s2', [
+    { label: 'weights {w_i}', value: r.w, sym: 'w_i' },
+    { label: 'total {S} = Σ {w_i}', value: r.S, op: 'add the {w_i}', sym: 'S' },
+    { label: 'probabilities {p_i}', value: r.p, op: 'divide each {w_i} by {S}', sym: 'p_i' }
+  ], { width: 0.4, decimals: 3 });
+
+  kit.bars('#s3', r.contrib, { sym: 'p_i', labels: r.labels, axis: 'outcome', decimals: 3, min: 0, max: 0.6, width: 0.5,
+    title: 'Share of each outcome, −{p_i} log₂ {p_i} (bits)' });
+  kit.plot('#s3', { width: 0.5, height: 230, domain: [0, 1], yRange: [0, 0.6],
+    title: 'Every share lies on the curve −p log₂ p',
+    series: [{ fn: x => -M.xlog2x(x), sym: 'p_i', label: '−p log₂ p', area: true }],
+    points: r.p.map((x, i) => ({ x: x, y: r.contrib[i], label: r.labels[i], sym: 'p_i', axis: 'outcome', index: i })),
+    vlines: [{ x: r.peakAt, label: '1/e' }, { x: 0.5, label: '0.5' }],
+    xLabel: 'probability p', yLabel: 'bits per outcome' });
+
+  kit.readout('#s4', { width: 0.5, label: 'Entropy {H}', value: r.H, sym: 'H', unit: 'bits', decimals: 4, min: 0, max: r.Hmax,
+    compare: { value: r.Hmax, label: 'maximum log₂ {n}' },
+    note: r.allZero
+      ? 'Every weight was 0, so the page fell back to equal weights 1/{n} each. The paper does not define this case.'
+      : (r.H < 1e-12
+        ? 'No uncertainty: one outcome is certain, so the draw tells you nothing.'
+        : 'As uncertain as ' + kit.fmt(Math.pow(2, r.H), 2) + ' equally likely outcomes.') });
+  kit.formula('#s4', '{H} = ' + r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 4) + ' bits');
+  kit.note('#s4', 'Largest share any single outcome can add: ' + kit.fmt(r.peak, 3) + ' bits, at {p_i} = 1/e ≈ ' + kit.fmt(r.peakAt, 3) + '. Maximum for {n} = ' + r.n + ' outcomes: log₂ ' + r.n + ' = ' + kit.fmt(r.Hmax, 3) + ' bits, when every {p_i} = 1/{n}.');
+}
+</render>
+<checks>
+const checks = [
+  { label: 'probabilities sum to 1', test: (s, r) => Math.abs(M.sum(r.p) - 1) < 1e-9,
+    show: (s, r) => 'Σ {p_i} = ' + M.fmt(M.sum(r.p), 6) },
+  { label: 'every {p_i} is nonnegative', test: (s, r) => r.p.every(x => x >= 0),
+    show: (s, r) => 'smallest {p_i} = ' + M.fmt(M.min(r.p), 4) },
+  { label: 'zero weight adds 0 bits', test: (s, r) => r.w.every((x, i) => x > 1e-12 || r.contrib[i] === 0),
+    show: (s, r) => r.w.filter(x => x <= 1e-12).length + ' zero weight(s), each contributing 0.000 bits' },
+  { label: '0 ≤ {H} ≤ log₂ {n}', test: (s, r) => r.H >= -1e-12 && r.H <= r.Hmax + 1e-9,
+    show: (s, r) => M.fmt(r.H, 4) + ' ≤ ' + M.fmt(r.Hmax, 4) },
+  { label: 'scaling all weights leaves {H} unchanged', test: (s, r) => {
+      const p2 = r.w.map(x => (x * 7) / (r.S * 7));
+      return Math.abs(M.sum(p2.map(x => -M.xlog2x(x))) - r.H) < 1e-9;
+    } }
+];
+</checks>
+<tests>
+[
+  {"state": {"n": 4, "w": [1, 1, 1, 1, 1, 1, 1, 1]}, "expect": {"H": 2}},
+  {"state": {"n": 4, "w": [3, 0, 0, 0, 1, 1, 1, 1]}, "expect": {"H": 0}},
+  {"state": {"n": 2, "w": [1, 1, 1, 1, 1, 1, 1, 1]}, "expect": {"H": 1}},
+  {"state": {"n": 3, "w": [2, 1, 1, 1, 1, 1, 1, 1]}, "expect": {"H": 1.5}},
+  {"state": {"n": 4, "w": [0, 0, 0, 0, 1, 1, 1, 1]}, "expect": {"H": 2}},
+  {"state": {"n": 8, "w": [1, 1, 1, 1, 1, 1, 1, 1]}, "expect": {"H": 3}},
+  {"state": {"n": 2, "w": [1, 2, 1, 1, 1, 1, 1, 1]}, "expect": {"H": 0.9182958340544896}, "tol": 1e-9},
+  {"state": {"n": 8, "w": [1, 0, 1, 0, 1, 0, 1, 0]}, "expect": {"H": 2}},
+  {"state": {"n": 4, "w": [2, 2, 2, 2, 1, 1, 1, 1]}, "expect": {"H": 2}},
+  {"state": {"n": 4, "w": [1, 0, 1, 0, 1, 1, 1, 1]}, "expect": {"H": 1}},
+  {"state": {"n": 4, "w": [4, 0, 1, 1, 1, 1, 1, 1]}, "expect": {"H": 1.2516291673878228}, "tol": 1e-9}
+]
+</tests>

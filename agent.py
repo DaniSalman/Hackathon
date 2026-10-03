@@ -1,237 +1,226 @@
 #!/usr/bin/env python3
-"""Paper to Playground: bounded plan → build → execute checks → review → repair."""
+"""Paper to Playground: one generation call -> deterministic checks -> targeted repair -> fixed template.
+
+    python agent.py --input case.json --output out --model deepseek/deepseek-v4.1-flash
+
+The model returns tagged blocks (content, controls, compute, render, checks, tests). Python validates
+them without any model (structure, QuickJS execution of compute/render/tests), asks the same model to
+fix only the failing blocks when needed, and pastes the result into the pre-written template in
+template/. Outputs: out/index.html (single offline file), out/trace.jsonl, out/reply.txt.
+"""
+from __future__ import annotations
+
 import argparse
 import json
-import math
 import os
-from pathlib import Path
-import re
 import signal
 import sys
 import time
-import urllib.request
 import urllib.error
-from urllib.parse import urlparse
-import quickjs
-from prompts import SYSTEM, PLAN, GENERATE, REVIEW
+import urllib.request
+from pathlib import Path
 
-ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
+from template.assemble import build_page, parse_reply
+from template.prompting import system_prompt, user_prompt
+from template.validate import validate
+
+ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 START = time.monotonic()
-MAX_SECONDS = 570
-MAX_CALLS = 8
-MAX_COMPLETION = 29000
+MAX_SECONDS = 560            # hard limit is 600 s per case; keep a margin to write the page
+MAX_CALLS = 6                # hard limit is 10 requests per case, retries included
+MAX_COMPLETION = 29000       # hard limit is 30,000 completion tokens per case
+GEN_TOKENS = 14000           # cap for the generation call (reasoning tokens count inside this)
+FIX_TOKENS = 7000            # cap for each repair call
+MAX_REPAIRS = 2
+EXCERPT_CHARS = 24000        # the excerpt is meant to be focused; cap prompt tokens
+REASONING = os.environ.get("P2P_REASONING", "low")   # off | low | medium | high
+EXCERPT_KEYS = ("excerpt", "source_excerpt", "paper_excerpt", "source_text", "text", "section_text")
+
+
+def elapsed() -> float:
+    return time.monotonic() - START
+
 
 class Trace:
-    def __init__(self, path):
+    """One JSON object per event: stage, action, result (+ details). Never credentials or reasoning."""
+
+    def __init__(self, path: Path):
         self.path = path
-        path.write_text('', encoding='utf-8')
-    def log(self, stage, action, result, **extra):
-        event = dict(stage=stage, action=action, result=result,
-                     elapsed_seconds=round(time.monotonic()-START, 3), **extra)
-        with self.path.open('a', encoding='utf-8') as f:
-            f.write(json.dumps(event, ensure_ascii=False, allow_nan=False)+'\n')
+        path.write_text("", encoding="utf-8")
+
+    def log(self, stage: str, action: str, result: str, **extra):
+        event = {"stage": stage, "action": action, "result": result, "elapsed_seconds": round(elapsed(), 3), **extra}
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False, allow_nan=False) + "\n")
+
 
 class Client:
-    def __init__(self, model, trace):
+    """OpenRouter chat client with request, completion-token and time budgets."""
+
+    def __init__(self, model: str, trace: Trace):
         self.model, self.trace = model, trace
-        self.calls = self.completion = self.reserved = 0
-        self.key = os.environ.get('OPENROUTER_API_KEY')
+        self.calls = self.prompt_tokens = self.completion_tokens = self.reserved = 0
+        self.key = os.environ.get("OPENROUTER_API_KEY")
         if not self.key:
-            raise ValueError('Set OPENROUTER_API_KEY in the environment; no credential is embedded or logged.')
-    def call(self, stage, prompt, cap):
-        remaining = MAX_SECONDS - (time.monotonic()-START)
-        if self.calls >= MAX_CALLS or remaining < 15 or self.reserved + cap > MAX_COMPLETION:
-            raise RuntimeError('Request, time, or completion-token budget exhausted')
-        self.calls += 1
-        self.reserved += cap  # Reserve even failed requests: never gamble on unreported usage.
-        body = json.dumps(dict(model=self.model, max_tokens=cap,
-            messages=[dict(role='system',content=SYSTEM),dict(role='user',content=prompt)])).encode()
-        self.trace.log(stage, 'request', 'started', call=self.calls, max_tokens=cap, model=self.model)
-        req = urllib.request.Request(ENDPOINT, data=body, method='POST', headers={
-            'Content-Type':'application/json', 'Authorization':'Bearer '+self.key})
-        try:
-            with urllib.request.urlopen(req, timeout=min(120, remaining-5)) as response:
-                data = json.load(response)
-        except (urllib.error.URLError, TimeoutError) as exc:
-            self.trace.log(stage, 'request', 'failed', call=self.calls, error_type=type(exc).__name__,
-                           prompt_tokens=None, completion_tokens=None, usage_verifiable=False)
-            raise RuntimeError('OpenRouter request failed; see trace (credentials omitted)') from None
-        usage = data.get('usage', {})
-        pt, ct = usage.get('prompt_tokens'), usage.get('completion_tokens')
-        if type(pt) is not int or type(ct) is not int or pt < 0 or ct < 0:
-            raise ValueError('OpenRouter response lacks verifiable token usage')
-        self.reserved += ct-cap
-        self.completion += ct
-        self.trace.log(stage, 'request', 'completed', call=self.calls, prompt_tokens=pt,
-                       completion_tokens=ct, total_tokens=pt+ct, usage_verifiable=True)
-        choice = data['choices'][0]
-        if choice.get('finish_reason') == 'length':
-            raise ValueError('Model output truncated; reduce the specification size')
-        content = choice['message']['content'].strip()
-        if content.startswith('```'):
-            content = re.sub(r'^```(?:json)?\s*|\s*```$', '', content)
-        return json.loads(content)
+            raise ValueError("Set OPENROUTER_API_KEY in the environment; no credential is embedded or logged.")
 
-def load_case(path):
-    case = json.loads(path.read_text(encoding='utf-8'))
-    for key in ('source_url','focus','audience'):
-        if not isinstance(case.get(key), str) or not case[key].strip():
-            raise ValueError(f'Missing nonempty string field: {key}')
-    url = urlparse(case['source_url'])
-    if url.scheme not in ('http','https') or not url.netloc:
-        raise ValueError('source_url must be an HTTP(S) paper URL')
-    excerpts = [case[k] for k in ('excerpt','source_excerpt','paper_excerpt','source_text') if k in case]
-    if not excerpts or not isinstance(excerpts[0],str) or not excerpts[0].strip():
-        raise ValueError('Supply excerpt (or source_excerpt/paper_excerpt/source_text). Assessment permits only OpenRouter network access; source URLs cannot be fetched.')
-    if len(set(excerpts)) != 1:
-        raise ValueError('Conflicting excerpt fields; provide one authoritative excerpt')
-    if len(excerpts[0]) > 65000:
-        raise ValueError('Excerpt exceeds 65,000 characters; supply only the focused section')
-    return {**case,'excerpt':excerpts[0]}
+    def _post(self, body: bytes, timeout: float) -> dict:
+        req = urllib.request.Request(ENDPOINT, data=body, method="POST", headers={
+            "Content-Type": "application/json", "Authorization": "Bearer " + self.key,
+            "X-Title": "Paper to Playground"})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.load(response)
 
-def finite(value):
-    if isinstance(value, (int,float)) and not isinstance(value,bool):
-        return math.isfinite(value)
-    if isinstance(value,list):
-        return all(finite(v) for v in value)
-    return False
-
-def validate(spec):
-    for key in ('title','idea','why','equation','compute'):
-        if not isinstance(spec.get(key),str) or not spec[key].strip():
-            raise ValueError('Missing specification text: '+key)
-    for key in ('symbols','limitations','controls','explorations','tests'):
-        if not isinstance(spec.get(key),list) or not spec[key]:
-            raise ValueError('Missing specification list: '+key)
-    for key in ('title','anchor','supported','simplification'):
-        if not isinstance(spec.get('source',{}).get(key),str) or not spec['source'][key].strip():
-            raise ValueError('Missing source grounding: '+key)
-    if len(spec['controls']) < 2 or len(spec['explorations']) < 2 or len(spec['tests']) < 3:
-        raise ValueError('Need two controls, two explorations and three numeric tests')
-    ids = set()
-    for c in spec['controls']:
-        if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*',c['id']) or c['id'] in ids:
-            raise ValueError('Invalid or duplicate control id')
-        ids.add(c['id'])
-        for k in ('label','help'):
-            if not isinstance(c.get(k),str): raise ValueError('Control missing '+k)
-        kind, v = c['kind'], c['value']
-        if kind == 'number':
-            if not all(finite(c[k]) for k in ('value','min','max','step')) or not c['min']<=v<=c['max'] or c['step']<=0:
-                raise ValueError('Invalid numeric control bounds')
-        elif kind == 'boolean':
-            if type(v) is not bool: raise ValueError('Boolean control requires boolean')
-        elif kind == 'vector':
-            if not isinstance(v,list) or not v or not all(finite(x) and not isinstance(x,list) for x in v): raise ValueError('Invalid vector')
-        elif kind == 'matrix':
-            if not isinstance(v,list) or not v or not all(isinstance(row,list) and row and len(row)==len(v[0]) and all(finite(x) and not isinstance(x,list) for x in row) for row in v): raise ValueError('Invalid rectangular matrix')
-        else: raise ValueError('Unknown control kind: '+kind)
-    for e in spec['explorations']:
-        for k in ('title','change','observe','why'):
-            if not isinstance(e.get(k),str) or not e[k]: raise ValueError('Incomplete exploration: '+k)
-        if not isinstance(e.get('values'),dict) or not set(e['values'])<=ids: raise ValueError('Unknown exploration control')
-    if re.search(r'\b(?:fetch|XMLHttpRequest|WebSocket|import|require|eval|Function|document|window|globalThis)\b|</script',spec['compute']):
-        raise ValueError('Computation must be pure JavaScript without external capabilities')
-
-def calculate(code, inputs):
-    context = quickjs.Context()
-    context.set_memory_limit(16*1024*1024)
-    context.set_time_limit(0.3)
-    context.eval(code)
-    raw = context.eval('JSON.stringify(compute('+json.dumps(inputs,allow_nan=False)+'), (k,v)=>{if(typeof v==="number"&&!Number.isFinite(v))throw Error("Non-finite calculation");return v;})')
-    return json.loads(raw)
-
-def assert_expected(actual, expected, label):
-    if isinstance(expected,list):
-        if not isinstance(actual,list) or len(actual)!=len(expected): raise ValueError(label+': array shape mismatch')
-        for i,(a,e) in enumerate(zip(actual,expected)): assert_expected(a,e,f'{label}[{i}]')
-    elif not finite(expected) or isinstance(actual,bool) or not isinstance(actual,(int,float)) or not math.isclose(actual,expected,rel_tol=1e-9,abs_tol=1e-10):
-        raise ValueError(f'{label}: expected {expected}, got {actual}')
-
-def check_result(result):
-    for key in ('metrics','series','matrices'):
-        if not isinstance(result.get(key),list): raise ValueError('Calculation missing '+key)
-    if not result['metrics'] or not (result['series'] or result['matrices']): raise ValueError('Calculation needs metrics and a visual')
-    for m in result['metrics']:
-        if not isinstance(m.get('label'),str) or not finite(m.get('value')) or isinstance(m['value'],list): raise ValueError('Invalid metric')
-    for s in result['series']:
-        if not isinstance(s.get('label'),str) or not s.get('values'): raise ValueError('Invalid chart series')
-        for v in s['values']:
-            if not isinstance(v.get('label'),str) or not finite(v.get('value')) or isinstance(v['value'],list): raise ValueError('Invalid chart value')
-    for m in result['matrices']:
-        rows=m['values']
-        if not rows or not all(isinstance(row,list) and row and len(row)==len(rows[0]) and all(finite(v) and not isinstance(v,list) for v in row) for row in rows): raise ValueError('Invalid output matrix')
-    if not isinstance(result.get('note'),str) or not isinstance(result.get('checks'),dict): raise ValueError('Missing interpretation or numeric checks')
-
-def check(spec, trace):
-    validate(spec)
-    defaults = {c['id']:c['value'] for c in spec['controls']}
-    cases = [('default',defaults)] + [(e['title'],{**defaults,**e['values']}) for e in spec['explorations']]
-    for name,inputs in cases:
-        check_result(calculate(spec['compute'],inputs))
-        trace.log('check','execute', 'passed', check=name)
-    for test in spec['tests']:
-        if set(test['inputs']) != set(defaults) or not test.get('expected'): raise ValueError('Test must supply all inputs and expected numeric values')
-        r = calculate(spec['compute'], test['inputs'])
-        check_result(r)
-        for key,expected in test['expected'].items(): assert_expected(r['checks'][key],expected,test['name']+'.'+key)
-        trace.log('check','numerical', 'passed', check=test['name'], expected=test['expected'], actual={k:r['checks'][k] for k in test['expected']})
-
-def render(spec, case, target):
-    data = json.dumps({**spec,'source_url':case['source_url']},ensure_ascii=False).replace('<','\\u003c').replace('\u2028','\\u2028').replace('\u2029','\\u2029')
-    template = Path(__file__).with_name('template.html').read_text(encoding='utf-8')
-    target.write_text(template.replace('__SPEC_JSON__',data),encoding='utf-8')
-
-def timeout_handler(*_):
-    raise TimeoutError('Hard execution deadline reached')
-
-def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--input',required=True,type=Path)
-    parser.add_argument('--output',required=True,type=Path)
-    parser.add_argument('--model',required=True)
-    args=parser.parse_args()
-    args.output.mkdir(parents=True,exist_ok=True)
-    trace=Trace(args.output/'trace.jsonl')
-    if hasattr(signal,'SIGALRM'):
-        signal.signal(signal.SIGALRM,timeout_handler)
-        signal.alarm(max(1,int(MAX_SECONDS-(time.monotonic()-START))))
-    try:
-        if (args.output/'index.html').exists(): raise ValueError('Use a fresh output directory; index.html already exists')
-        case=load_case(args.input)
-        trace.log('input','validate','passed',source_url=case['source_url'],excerpt_characters=len(case['excerpt']))
-        client=Client(args.model,trace)
-        source=json.dumps(case,ensure_ascii=False)
-        plan=client.call('plan',PLAN+'\nINPUT DATA:\n'+source,1800)
-        (args.output/'plan.json').write_text(json.dumps(plan,indent=2,ensure_ascii=False),encoding='utf-8')
-        spec=client.call('generate',GENERATE+'\nINPUT DATA:\n'+source+'\nPLAN:\n'+json.dumps(plan),6500)
-        for attempt in range(3):
-            issues=[]
+    def chat(self, stage: str, messages: list[dict], cap: int) -> tuple[str, str]:
+        """Return (content, finish_reason). Retries once on transport errors, within the budgets."""
+        for attempt in (1, 2):
+            remaining = MAX_SECONDS - elapsed()
+            if self.calls >= MAX_CALLS or remaining < 25 or self.reserved + cap > MAX_COMPLETION:
+                raise RuntimeError("request, time or completion-token budget exhausted")
+            self.calls += 1
+            self.reserved += cap  # reserve the cap until real usage is known
+            payload = {"model": self.model, "max_tokens": cap, "messages": messages, "usage": {"include": True}}
+            if REASONING != "default":
+                payload["reasoning"] = {"enabled": False} if REASONING == "off" else {"effort": REASONING, "exclude": True}
+            self.trace.log(stage, "model_call", "started", call=self.calls, attempt=attempt, max_tokens=cap, model=self.model,
+                           reasoning=REASONING, prompt_characters=sum(len(m["content"]) for m in messages))
+            t0 = time.monotonic()
             try:
-                check(spec,trace)
-            except Exception as exc:
-                issues=[str(exc)]
-                trace.log('check','validate','failed',error=str(exc),revision=attempt)
-            if not issues:
-                review=client.call('review',REVIEW+'\nINPUT DATA:\n'+source+'\nSPEC:\n'+json.dumps(spec),1200)
-                trace.log('review','audit',review)
-                if review.get('approved') is True and review.get('issues') == []:
-                    render(spec,case,args.output/'index.html')
-                    (args.output/'spec.json').write_text(json.dumps(spec,indent=2,ensure_ascii=False),encoding='utf-8')
-                    trace.log('finish','write','success',file='index.html',calls=client.calls,completion_tokens=client.completion,
-                              browser_tested=False,checks='QuickJS computation + schema + model source review')
-                    print(str((args.output/'index.html').resolve()))
-                    return 0
-                issues=review.get('issues') or ['Reviewer did not approve']
-            if attempt == 2: raise ValueError('Unresolved after two revisions: '+json.dumps(issues))
-            trace.log('revise','repair','started',revision=attempt+1,issues=issues)
-            spec=client.call('repair',GENERATE+'\nRepair these issues: '+json.dumps(issues)+'\nINPUT DATA:\n'+source+'\nCURRENT SPEC:\n'+json.dumps(spec),6500)
-        raise RuntimeError('No successful artifact')
-    except Exception as exc:
-        trace.log('finish','abort','failed',error=str(exc))
-        print('Generation failed: '+str(exc),file=sys.stderr)
-        return 1
-    finally:
-        if hasattr(signal,'SIGALRM'): signal.alarm(0)
+                data = self._post(json.dumps(payload).encode(), timeout=max(10.0, min(300.0, remaining - 15)))
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                code = getattr(exc, "code", None)
+                self.trace.log(stage, "model_call", "failed", call=self.calls, error_type=type(exc).__name__, http_status=code,
+                               seconds=round(time.monotonic() - t0, 2), usage_verifiable=False)
+                if attempt == 1 and (code is None or code == 429 or code >= 500) and MAX_SECONDS - elapsed() > 60:
+                    time.sleep(2)
+                    continue
+                raise RuntimeError("OpenRouter request failed (see trace; credentials omitted)") from None
+            usage = data.get("usage") or {}
+            pt, ct = usage.get("prompt_tokens"), usage.get("completion_tokens")
+            if not isinstance(pt, int) or not isinstance(ct, int):
+                self.trace.log(stage, "model_call", "failed", call=self.calls, error="response lacks token usage", usage_verifiable=False)
+                raise RuntimeError("OpenRouter response lacks verifiable token usage")
+            self.reserved += ct - cap
+            self.prompt_tokens += pt
+            self.completion_tokens += ct
+            choice = (data.get("choices") or [{}])[0]
+            content = (choice.get("message") or {}).get("content") or ""
+            finish = choice.get("finish_reason") or choice.get("native_finish_reason") or ""
+            self.trace.log(stage, "model_call", "completed", call=self.calls, generation_id=data.get("id"), model_used=data.get("model"),
+                           provider=data.get("provider"), prompt_tokens=pt, completion_tokens=ct, total_tokens=pt + ct,
+                           reasoning_tokens=(usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+                           cached_prompt_tokens=(usage.get("prompt_tokens_details") or {}).get("cached_tokens"),
+                           cost=usage.get("cost"), finish_reason=finish, reply_characters=len(content),
+                           seconds=round(time.monotonic() - t0, 2), usage_verifiable=True)
+            return content, finish
+        raise RuntimeError("unreachable")
 
-if __name__=='__main__': sys.exit(main())
+
+def load_case(path: Path, trace: Trace) -> dict:
+    """Accept any string fields; the excerpt may arrive under several names. Never fetch the URL."""
+    case = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(case, dict) or not any(isinstance(v, str) and v.strip() for v in case.values()):
+        raise ValueError("case.json must be a JSON object with string fields")
+    missing = [k for k in ("source_url", "focus", "audience") if not (isinstance(case.get(k), str) and case[k].strip())]
+    excerpt_key = next((k for k in EXCERPT_KEYS if isinstance(case.get(k), str) and case[k].strip()), None)
+    if excerpt_key and len(case[excerpt_key]) > EXCERPT_CHARS:
+        case = {**case, excerpt_key: case[excerpt_key][:EXCERPT_CHARS] + " [...]"}
+    trace.log("input", "load_case", "passed" if not missing else "warning", fields=sorted(case), missing_fields=missing,
+              excerpt_field=excerpt_key, excerpt_characters=len(case[excerpt_key]) if excerpt_key else 0,
+              note="source_url is cited, never fetched (assessment network allows OpenRouter only)")
+    return case
+
+
+def score(report: dict) -> int:
+    """Lower is better: hard failures (missing blocks, crashes, bad JSON) dominate."""
+    hard = sum(1 for f in report["failures"] if any(s in f for s in ("missing <", "invalid JSON", "could not run", "compute threw", "render threw")))
+    return hard * 100 + len(report["failures"])
+
+
+def as_reply(parts: dict) -> str:
+    return "\n".join(f"<{k}>\n{v}\n</{k}>" for k, v in parts.items())
+
+
+def repair_messages(case: dict, parts: dict, failures: list[str]) -> list[dict]:
+    """Lean repair prompt: rules + API (no example), the previous reply and the concrete failures."""
+    ask = ("\n\nYour previous reply:\n" + as_reply(parts) +
+           "\n\nAutomatic checks found these problems:\n- " + "\n- ".join(failures[:25]) +
+           "\n\nReturn ONLY the blocks that need changes, each complete and in the same tags; omitted blocks are kept as they are.")
+    return [{"role": "system", "content": system_prompt(example=None)},
+            {"role": "user", "content": user_prompt(case) + ask}]
+
+
+def _deadline(*_):
+    raise TimeoutError("hard execution deadline reached")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--input", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--model", required=True)
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+    trace = Trace(args.output / "trace.jsonl")
+    if hasattr(signal, "SIGALRM"):
+        signal.signal(signal.SIGALRM, _deadline)
+        signal.alarm(MAX_SECONDS + 15)
+
+    case, client, best, best_report, revisions = None, None, None, None, 0
+    try:
+        case = load_case(args.input, trace)
+        client = Client(args.model, trace)
+        reply, finish = client.chat("generate", [{"role": "system", "content": system_prompt()},
+                                                 {"role": "user", "content": user_prompt(case)}], GEN_TOKENS)
+        parts = parse_reply(reply)
+        trace.log("generate", "parse_reply", "passed" if parts else "failed", blocks=sorted(parts), truncated=finish == "length")
+        while True:
+            report = validate(as_reply(parts))
+            trace.log("check", "validate", "passed" if report["ok"] else "failed", revision=revisions,
+                      checks_passed=report["passed"], failures=report["failures"])
+            if best_report is None or score(report) < score(best_report):
+                best, best_report = dict(parts), report
+            if report["ok"] or revisions >= MAX_REPAIRS:
+                break
+            if MAX_SECONDS - elapsed() < 120 or MAX_COMPLETION - client.reserved < 3000 or client.calls >= MAX_CALLS:
+                trace.log("revise", "repair", "skipped", reason="not enough time or budget left for another call")
+                break
+            revisions += 1
+            if all(k in best for k in ("content", "compute", "render")):
+                messages, cap = repair_messages(case, best, best_report["failures"]), FIX_TOKENS
+            else:  # nothing usable came back: ask again for the whole reply
+                messages = [{"role": "system", "content": system_prompt()},
+                            {"role": "user", "content": user_prompt(case) + "\n\nYour previous reply could not be parsed. "
+                             "Reply again with all six tagged blocks."}]
+                cap = GEN_TOKENS
+            fix, finish = client.chat("revise", messages, min(cap, MAX_COMPLETION - client.reserved))
+            new = parse_reply(fix)
+            trace.log("revise", "merge_blocks", "passed" if new else "failed", revision=revisions, replaced_blocks=sorted(new),
+                      truncated=finish == "length")
+            parts = {**best, **new}
+    except Exception as exc:  # budgets, network, deadline, bad input: still ship the best page we have
+        trace.log("finish", "abort", "failed", error_type=type(exc).__name__, error=str(exc)[:300])
+    finally:
+        if hasattr(signal, "SIGALRM"):
+            signal.alarm(0)
+
+    usable = best is not None and "content" in best and "compute" in best and "render" in best
+    if usable:
+        page = build_page(best, case)
+        (args.output / "index.html").write_text(page, encoding="utf-8")
+        (args.output / "reply.txt").write_text(as_reply(best), encoding="utf-8")
+        trace.log("output", "write_page", "passed", file="index.html", bytes=len(page.encode("utf-8")),
+                  remaining_failures=best_report["failures"])
+    status = "success" if usable and best_report["ok"] else "partial" if usable else "failed"
+    trace.log("finish", "summary", status, calls=client.calls if client else 0, revisions=revisions,
+              prompt_tokens=client.prompt_tokens if client else 0, completion_tokens=client.completion_tokens if client else 0,
+              total_tokens=(client.prompt_tokens + client.completion_tokens) if client else 0, total_seconds=round(elapsed(), 2))
+    if usable:
+        print(str((args.output / "index.html").resolve()))
+    else:
+        print("Generation failed: no usable page (see trace.jsonl)", file=sys.stderr)
+    return 0 if status == "success" else 2 if status == "partial" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
