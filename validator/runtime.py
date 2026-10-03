@@ -1,6 +1,8 @@
-"""Deterministic checks for a model reply before it is shipped (no API calls, no browser).
+"""Runtime checks for a model reply (no API calls, no browser). Stage 1 of validator.Validator.check.
 
-    python -m template.validate template/fixtures/attention.txt
+    python -m validator.runtime template/fixtures/attention.txt
+
+Written by Dani as template/validate.py; moved here so the validator owns every check.
 
 1. Structure: required blocks parse; >= 2 controls; 2 complete explorations; presets, focus scenes and
    control scenes refer to things that exist; grounding is filled in.
@@ -20,9 +22,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .assemble import loads_lenient, parse_reply
+from template.assemble import loads_lenient, parse_reply
 
-HERE = Path(__file__).resolve().parent
+TEMPLATE = Path(__file__).resolve().parents[1] / "template"   # mathlib.js is shared with the page
 KIT_FUNCS = {"bars", "matrix", "plot", "plane", "graph", "steps", "readout", "formula", "note", "text", "svg", "fmt", "sub", "color", "palette"}
 CTL_TYPES = {"slider", "toggle", "select", "vector", "simplex", "matrix", "play", "range", "number", "checkbox", "boolean"}
 BIND_TYPES = {"bars": {"vector", "simplex"}, "matrix": {"matrix"}, "plot.marker": {"slider", "play", "range", "number"}, "plane": {"vector"}}
@@ -238,7 +240,7 @@ def validate(reply: str) -> dict:
     """Return {'ok': bool, 'failures': [...], 'passed': [...]} for one model reply."""
     fails, passed, minor = [], [], []
     parts = parse_reply(reply)
-    for tag in ("content", "controls", "compute", "render"):
+    for tag in ("content", "controls", "compute", "render", "tests"):   # tests: the oracles the calculator also checks
         if tag not in parts:
             fails.append(f"missing <{tag}> block")
     if fails:
@@ -299,7 +301,7 @@ def validate(reply: str) -> dict:
     if js_engine() is None:   # an environment problem, not a defect of the reply: do not trigger repairs
         passed.append("runtime checks skipped: no JavaScript engine available")
         return {"ok": not fails, "failures": fails, "passed": passed, "minor": minor}
-    src = "\n".join([(HERE / "mathlib.js").read_text(encoding="utf-8"), parts["compute"], parts["render"], parts.get("checks", ""),
+    src = "\n".join([(TEMPLATE / "mathlib.js").read_text(encoding="utf-8"), parts["compute"], parts["render"], parts.get("checks", ""),
                      HARNESS.replace("__CASES__", json.dumps(cases))])
     try:
         results = json.loads(_run_js(src))
