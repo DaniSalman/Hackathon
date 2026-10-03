@@ -1,70 +1,76 @@
 # Paper to Playground
 
-A preliminary hackathon implementation: a reusable Python 3.11 agent that turns a supplied research excerpt and learning brief into one offline interactive HTML explanation. No paper-specific solution is selected or embedded by the generator.
+A reusable Python 3.11 agent that turns a focused research-paper excerpt and a learning brief into one
+self-contained, interactive HTML explanation, paced one idea at a time in a style inspired by 3Blue1Brown.
+
+**Team:** Dani Salman, Ibrahim, Samer *(full names to be completed)*
+
+**MODEL_ID:** `deepseek/deepseek-v4.1-flash` (via OpenRouter)
 
 ## Run
 
 ```sh
-python3.11 -m venv .venv
-source .venv/bin/activate
 python -m pip install -r requirements.txt
-export OPENROUTER_API_KEY='your-key'
-python agent.py --input examples/entropy.json --output out --model anthropic/claude-sonnet-4
-python -m http.server 8000 --directory out
+export OPENROUTER_API_KEY=...            # read from the environment; never stored or logged
+python agent.py --input examples/entropy.json --output out --model deepseek/deepseek-v4.1-flash
 ```
 
-Open http://localhost:8000. The local server is optional for viewing; generation requires no server, Node, GPU, browser installation or build step. Use the instructor's exact MODEL_ID for assessment. `anthropic/claude-sonnet-4` is an example development identifier; verify availability in your OpenRouter account. All calls go to https://openrouter.ai/api/v1/chat/completions with the provided model; no model substitution.
-
-Input strings: `source_url`, `focus`, `audience`, and `excerpt`. Also accepts `source_excerpt`, `paper_excerpt` or `source_text` as an excerpt alias. The brief says five required strings but names only three; its assessment section says excerpts are supplied. This implementation requires the excerpt explicitly and never pretends to have fetched a source URL. Only OpenRouter is contacted. Confirm the final case schema with the instructor.
+Outputs: `out/index.html` (single offline file, opens in Chromium), `out/trace.jsonl` (one event per line),
+`out/reply.txt` (the model's final tagged reply). Exit code 0 = page written and all checks pass,
+2 = page written but some checks still fail after repairs, 1 = no usable page.
 
 ## Architecture
 
-1. Validate input, source URL and focused excerpt.
-2. Ask the model for a teaching plan grounded in that excerpt.
-3. Generate a structured explanation plus a pure JavaScript calculation function.
-4. Validate schema, execute default/exploration cases, and run numerical assertions in QuickJS with 300 ms / 16 MB limits per execution.
-5. Ask the same supplied model to review scientific fidelity and teaching content.
-6. Feed concrete failures back for up to two autonomous revisions, then render a generic template.
+```
+case.json ─▶ 1 generation call ─▶ validate (no model) ─▶ [repair call: failing blocks only] ─▶ fixed template ─▶ index.html
+             system: teaching rules            structure, QuickJS runs          ≤ 2, only if a          template/ (HTML, CSS,
+             + kit API + 1 example             compute / render / tests         check fails             JS kit) pasted in by Python
+```
 
-The template provides editable numeric, Boolean, vector and matrix controls; live signed bar charts, matrix heatmaps, intermediate metrics, exploration presets, citations, limitations, accessible labels, responsive layout and explicit error feedback. Calculations run in a terminable Web Worker. Text is inserted via textContent, source JSON escapes script boundaries, and CSP blocks networking.
+- **The model writes only paper-specific pieces**, as tagged blocks: `content` (text, symbols, scenes, explorations,
+  grounding), `controls`, `compute(s)` (the formula), `render(s, r, kit)` (which panels show which numbers),
+  `checks` (live invariants) and `tests` (numeric oracles).
+- **Everything visual is pre-written and costs no tokens** (`template/`): layout, 3b1b-style theme, components
+  (bars, matrix, plot, 2-D plane, graph, steps, readout, formula), draggable visuals bound to inputs, linked
+  highlighting, eased motion, "Try it" explorations, live checks, and stage-by-stage reveal with "pause and ponder" questions.
+- **Checks are deterministic** (`template/validate.py`): required blocks and fields, ≥ 2 controls, 2 explorations, grounding;
+  `compute` runs in QuickJS on the defaults, every exploration preset and every test state (no throws, no NaN, oracles match,
+  live checks hold); `render` runs against a mock kit (no crashes, finite data, no "undefined" text, valid scenes and bindings).
+  Failures are sent back verbatim and the model returns only the blocks it changes.
+- **Budgets** (per case): ≤ 6 requests including retries (limit 10), ≤ 29,000 reserved completion tokens (limit 30,000),
+  560 s deadline (limit 600 s), reasoning effort `low`. The source URL is cited, never fetched.
+- **Trace:** every model call logs prompt / completion / reasoning tokens, OpenRouter generation id, finish reason and seconds;
+  every validation logs the checks that passed and the failures; repairs log which blocks were replaced. No credentials,
+  no hidden reasoning.
 
-Budget: 570-second process deadline on Unix, at most 8 API requests, and 29,000 reserved completion tokens including failed requests. No automatic HTTP retries. Actual per-call token usage is required and logged; missing usage fails rather than fabricating accounting. No credentials or hidden model reasoning are logged.
+## Example input / output (real run)
 
-Outputs: `index.html`, `trace.jsonl`, plus inspectable `plan.json` and `spec.json`. Exit 0 means checks and review passed; failures return nonzero with a trace. Use a fresh output directory. Generated content is never hand-edited by the pipeline.
+`examples/entropy.json` → `examples/showcase/entropy/` (`index.html`, `trace.jsonl`, `reply.txt`), generated by
+`deepseek/deepseek-v4.1-flash`: 2 calls (the validator caught one wrong test oracle; one repair fixed only the
+`tests` block), 22,560 total tokens, 104 s, exit code 0. Assessed outputs are generated afresh.
 
-## Checks and remaining work
+## Tests
 
 ```sh
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v                     # offline; the model is stubbed
+python -m template.validate template/fixtures/entropy.txt   # validate one reply
 ```
 
-QuickJS checks execute the actual generated computation, but are not Chromium DOM tests. Numerical test oracles are proposed by the model and reviewed by a model; they are not a proof of scientific correctness. Controls have generic input validation; domain-specific validation belongs in the generated compute function.
+## Repository
 
-**Not submission-ready yet:** no OpenRouter key was available during implementation, so live generation, model quality and a genuine generated example input/output pair remain unverified. Run both practice cases, inspect their pages in Chromium, add one freshly generated output under `examples/showcase/`, and run unseen cases before freezing the repository. The practice case excerpts are labeled paraphrases. No paper-specific prewritten page is included. Browser automation, richer curve/diagram renderers, and independently derived oracle tests are worthwhile next improvements.
+| Path | Purpose |
+|---|---|
+| `agent.py` | CLI, OpenRouter client with budgets, generate → validate → repair loop, trace |
+| `template/` | page template, kit, math helpers, prompt, assembler, validator (see `template/README.md`) |
+| `template/fixtures/` | hand-written replies for the two public practice cases: the one-shot format example in the prompt and test data |
+| `examples/` | practice inputs (paraphrased excerpts) and the showcase output |
+| `tests/` | offline tests of the agent loop |
+| `arxiv_to_markdown.py` | standalone arXiv HTML → Markdown converter (deterministic, no model); not used by `agent.py` |
 
-## Requirements coverage
+## Credits
 
-- Python 3.11, root agent.py, pinned requirements: implemented.
-- Required CLI, supplied OpenRouter model and environment key: implemented.
-- Identify / plan / generate / check / revise: implemented.
-- Offline single-file output, two controls, two explorations, source grounding: enforced by schema and prompts.
-- Actual calculations, boundary tests, trace and usage accounting: implemented.
-- Live assessed generation and example output: pending API key.
-- GitHub URL, final commit SHA, instructor access: submission tasks remain.
-
-## Team and credits
-
-Team members: fill in before submission. Implementation assisted by Codex. QuickJS Python bindings (quickjs==1.19.4) provide the calculation sandbox; Python standard library provides HTTP, CLI and JSON. Generic HTML/CSS/SVG renderer authored for this project. No external visual assets or copied paper-specific implementations. Practice sources: Shannon, *A Mathematical Theory of Communication*, Section 6; Vaswani et al., *Attention Is All You Need*, Section 3.2.1. OpenRouter API format: https://openrouter.ai/docs/quickstart.
-
-## arXiv to Markdown (`arxiv_to_markdown.py`)
-
-Standalone, deterministic converter (no LLM) from an arXiv paper's HTML version to Markdown, for producing excerpts. Not yet wired into `agent.py`. Formulas are recovered exactly from LaTeXML `alttext`, figures become captions, merged-cell tables become regular Markdown tables.
-
-```python
-from arxiv_to_markdown import arxiv_to_markdown
-result = arxiv_to_markdown("1706.03762v7", write=False)   # fetches https://arxiv.org/html/<id>
-print(result.report.summary())
-markdown = result.markdown
-```
-
-CLI: `python arxiv_to_markdown.py 1706.03762v7 -o paper.md`. Needs `requests` and `beautifulsoup4` (in `requirements.txt`) and network access to arxiv.org.
+- [QuickJS](https://bellard.org/quickjs/) via the `quickjs` Python binding (MIT) runs generated JavaScript for checks.
+- Visual style inspired by 3Blue1Brown and the Manim colour palette; no code, fonts or assets were copied. All page code
+  (HTML, CSS, `kit.js`, `mathlib.js`) was written for this project with AI coding assistants (Claude Code, Codex).
+- OpenRouter chat-completions API. Practice sources: Shannon, *A Mathematical Theory of Communication*, Section 6;
+  Vaswani et al., *Attention Is All You Need*, Section 3.2.1.

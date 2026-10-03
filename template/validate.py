@@ -121,6 +121,15 @@ var __out_json = JSON.stringify(__out);
 """
 
 
+def js_engine() -> str | None:
+    """'quickjs' (pinned dependency, used in assessment), 'node' (local fallback) or None."""
+    try:
+        import quickjs  # type: ignore  # noqa: F401
+        return "quickjs"
+    except ImportError:
+        return "node" if shutil.which("node") else None
+
+
 def _run_js(source: str) -> str:
     try:
         import quickjs  # type: ignore
@@ -231,6 +240,9 @@ def validate(reply: str) -> dict:
         cases.append({"name": f"exploration {i + 1}", "state": {**base, **ex.get("preset", {})}})
     for i, t in enumerate(tests):
         cases.append({"name": f"test {i + 1}", "state": {**base, **t.get("state", {})}, "expect": t.get("expect", {}), "tol": t.get("tol", 1e-6)})
+    if js_engine() is None:   # an environment problem, not a defect of the reply: do not trigger repairs
+        passed.append("runtime checks skipped: no JavaScript engine available")
+        return {"ok": not fails, "failures": fails, "passed": passed}
     src = "\n".join([(HERE / "mathlib.js").read_text(encoding="utf-8"), parts["compute"], parts["render"], parts.get("checks", ""),
                      HARNESS.replace("__CASES__", json.dumps(cases))])
     try:

@@ -12,9 +12,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
-def system_prompt(example: str = "entropy") -> str:
-    """Teaching rules + reply contract + kit API, followed by one complete example reply."""
+def system_prompt(example: str | None = "entropy") -> str:
+    """Teaching rules + reply contract + kit API, followed by one complete example reply (omit with None)."""
     rules = (HERE / "prompt_kit.md").read_text(encoding="utf-8").strip()
+    if example is None:
+        return rules.rsplit("\n# Example reply", 1)[0]
     shot = (HERE / "fixtures" / f"{example}.txt").read_text(encoding="utf-8").strip()
     return rules + "\n" + shot
 
