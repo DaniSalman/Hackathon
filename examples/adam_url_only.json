@@ -1,0 +1,5 @@
+{
+  "source_url": "https://ar5iv.labs.arxiv.org/html/1412.6980",
+  "focus": "Explain the Adam update rule (Algorithm 1): exponential moving averages of the gradient and squared gradient, bias correction, and the resulting step. Let the learner change beta1, beta2 and the step size and step through iterations on a simple 1-D function. Show m_t, v_t, their bias-corrected versions and the step. Explore why bias correction matters in the first steps.",
+  "audience": "Engineering undergraduate who knows gradient descent"
+}

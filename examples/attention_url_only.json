@@ -1,0 +1,5 @@
+{
+  "source_url": "https://arxiv.org/html/1706.03762v7",
+  "focus": "Explain scaled dot-product attention with editable small Q, K, V matrices and a scaling toggle. Display scores, row-normalized weights, and weighted values. Explore equal scores and one dominant score; verify each weight row sums to one.",
+  "audience": "Engineering undergraduate familiar with matrix multiplication"
+}

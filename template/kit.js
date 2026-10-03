@@ -1020,6 +1020,7 @@
     var c = Object.assign({}, raw);
     c.id = String(c.id);
     var t = String(c.type || c.kind || 'slider').toLowerCase(); c.type = TYPE_ALIAS[t] || t;
+    if (c.type === 'slider' && c.play) c.type = 'play';   // a slider can carry its own play button
     if (['slider', 'play', 'toggle', 'select', 'vector', 'simplex', 'matrix'].indexOf(c.type) < 0) c.type = Array.isArray(c.value) ? (Array.isArray(c.value[0]) ? 'matrix' : 'vector') : typeof c.value === 'boolean' ? 'toggle' : 'slider';
     if (c.type === 'slider' || c.type === 'play') {
       c.min = num(c.min, 0); c.max = num(c.max, Math.max(c.min + 1, num(c.value, 1))); if (c.max <= c.min) c.max = c.min + 1;
@@ -1199,7 +1200,7 @@
             var v = state[c.id] + c.step;
             if (v > c.max + 1e-9) { if (c.loop) v = c.min; else { stopPlay(box, btn); return; } }
             setControl(c.id, v);
-          }, c.interval || Math.round(1000 / (c.speed || 4)));
+          }, c.interval || (c.speed > 20 ? c.speed : Math.round(1000 / (c.speed || 4))));   // speed: steps/s, or ms/step if > 20
         });
       }
       box._sync = function (force) {
@@ -1396,6 +1397,13 @@
     if (mis) $('#misconception').innerHTML = md(mis); else $('#misc-box').style.display = 'none';
     $('#cite').innerHTML = [G.paper ? '<b>' + md(G.paper) + '</b>' : '', G.section ? md(G.section) : '', G.equation ? md(G.equation) : ''].filter(Boolean).join(' &#183; ') +
       (DATA.source_url ? '<br><span class="src">' + esc(DATA.source_url) + '</span>' : '');
+    var SRC_MODE = {
+      supplied: 'Excerpt: supplied with the case.',
+      searched: 'Excerpt: retrieved from the source URL during generation (OpenRouter web search); quoted text may contain extraction noise.',
+      fetched: 'Excerpt: retrieved from the source URL during generation (OpenRouter web fetch); quoted text may contain extraction noise.',
+      none: 'No excerpt was available: statements marked "from the paper" rely on the model\'s knowledge of the paper and could not be checked against its text.'
+    };
+    if (SRC_MODE[DATA.source_mode]) $('#cite').insertAdjacentHTML('beforeend', '<br><span class="src-mode mode-' + DATA.source_mode + '">' + esc(SRC_MODE[DATA.source_mode]) + '</span>');
     $('#from-paper').innerHTML = asArray(G.from_paper || G.supported).map(function (t) { return '<li>' + md(t) + '</li>'; }).join('');
     $('#ours').innerHTML = asArray(G.simplifications || G.ours).map(function (t) { return '<li>' + md(t) + '</li>'; }).join('');
     // controls

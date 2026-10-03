@@ -297,6 +297,8 @@ input.num { -moz-appearance: textfield; }
 .sources { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 24px; }
 .cite { color: var(--ink); margin: 6px 0 16px; }
 .cite .src { color: var(--mute); font-size: 14px; word-break: break-all; }
+.src-mode { display: inline-block; margin-top: 6px; font-size: 13.5px; color: var(--mute); }
+.src-mode.mode-none { color: var(--gold); }
 .src-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
 .src-grid ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink2); }
 .src-grid li { margin: 5px 0; }

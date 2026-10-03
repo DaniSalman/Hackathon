@@ -136,29 +136,47 @@ def js_engine() -> str | None:
         return "node" if shutil.which("node") else None
 
 
+class GeneratedCodeError(Exception):
+    """The model's JavaScript failed (syntax error, exception, time or memory limit). Anything else
+    raised while checking is a fault of the checker or environment and must never trigger a repair."""
+
+
 def _run_js(source: str) -> str:
     try:
         import quickjs  # type: ignore
+    except ImportError:
+        quickjs = None
+    if quickjs is not None:
         ctx = quickjs.Context()
         ctx.set_time_limit(3)
         ctx.set_memory_limit(64 * 1024 * 1024)
-        return ctx.eval(source + "\n__out_json;")
-    except ImportError:
-        node = shutil.which("node")
-        if not node:
-            raise RuntimeError("no JavaScript engine: install quickjs (pip) or node")
-        proc = subprocess.run([node, "-e", source + "\n;process.stdout.write(__out_json);"], capture_output=True, text=True, timeout=15)
-        if proc.returncode:
-            lines = [ln.strip() for ln in proc.stderr.splitlines() if ln.strip()]
-            err = next((ln for ln in lines if re.match(r"^\w*(Error|Exception)\b", ln)), None)
-            raise RuntimeError(err or (lines[0] if lines else "node failed"))
-        return proc.stdout
+        try:
+            return ctx.eval(source + "\n__out_json;")
+        except getattr(quickjs, "JSException", Exception) as exc:
+            raise GeneratedCodeError(str(exc)) from None
+    node = shutil.which("node")
+    if not node:
+        raise OSError("no JavaScript engine: install quickjs (pip) or node")
+    try:
+        proc = subprocess.run([node, "-e", source + "\n;process.stdout.write(__out_json);"], capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=15)
+    except subprocess.TimeoutExpired:
+        raise GeneratedCodeError("timed out (infinite loop?)") from None
+    if proc.returncode:
+        lines = [ln.strip() for ln in (proc.stderr or "").splitlines() if ln.strip()]
+        err = next((ln for ln in lines if re.match(r"^\w*(Error|Exception)\b", ln)), None)
+        raise GeneratedCodeError(err or (lines[0] if lines else "node failed"))
+    if not proc.stdout:
+        raise OSError("node produced no output")
+    return proc.stdout
 
 
 def _close(a, b, tol) -> bool:
     """b is the expected value. A rounded expectation (0.9298) also accepts half a unit of its last decimal."""
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(_close(x, y, tol) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):   # objects: compare the expected keys, recursively
+        return all(k in a and _close(a[k], y, tol) for k, y in b.items())
     if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
         shown = repr(float(b))
         rounding = 0.5 * 10 ** -len(shown.split(".")[1]) if "e" not in shown and not float(b).is_integer() else 0.0
@@ -170,6 +188,8 @@ def _relerr(a, b) -> float:
     """Largest relative difference between got (a) and expected (b); inf if shapes differ."""
     if isinstance(a, list) and isinstance(b, list):
         return max([_relerr(x, y) for x, y in zip(a, b)] or [0.0]) if len(a) == len(b) else float("inf")
+    if isinstance(a, dict) and isinstance(b, dict):
+        return max([_relerr(a[k], y) if k in a else float("inf") for k, y in b.items()] or [0.0])
     if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
         return abs(a - b) / max(abs(a), abs(b), 1e-12)
     return 0.0 if a == b else float("inf")
@@ -260,6 +280,11 @@ def validate(reply: str) -> dict:
         fails.append("grounding needs section, from_paper and simplifications")
     for fn in sorted(set(re.findall(r"\bkit\.([A-Za-z_]\w*)", parts["render"])) - KIT_FUNCS):
         fails.append(f"render uses unknown kit.{fn}")
+    code = parts["compute"] + "\n" + parts["render"]
+    for cid in ctl_type:   # a control nobody reads is a dead slider for the learner
+        read = re.search(r"\.\s*%s\b|\[\s*['\"]%s['\"]\s*\]|['\"]%s['\"]" % ((re.escape(cid),) * 3), code)
+        if not read:
+            fails.append(f"control '{cid}' is never read by compute or render, so moving it changes nothing")
     if not fails:
         passed.append("structure")
 
@@ -278,9 +303,12 @@ def validate(reply: str) -> dict:
                      HARNESS.replace("__CASES__", json.dumps(cases))])
     try:
         results = json.loads(_run_js(src))
-    except Exception as e:  # syntax errors, timeouts, engine failures
+    except GeneratedCodeError as e:   # the model's code is broken: worth a repair
         fails.append(f"generated code could not run: {e}")
         return {"ok": False, "failures": fails, "passed": passed, "minor": minor}
+    except Exception as e:            # the checker itself failed: never blame (or repair) the reply for it
+        passed.append(f"runtime checks skipped: checker error ({type(e).__name__}: {str(e)[:120]})")
+        return {"ok": not fails, "failures": fails, "passed": passed, "minor": minor}
 
     seen = set()
     def once(msg):

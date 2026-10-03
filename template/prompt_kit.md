@@ -23,8 +23,10 @@ content: {title, hook, why, symbols:[{key, meaning, color}] (colors: blue yellow
  takeaway, misconception (one limitation, assumption or common misunderstanding), grounding:{paper, section, equation, from_paper:[...], simplifications:[...]}}
 
 controls (sidebar, at least 2, all update everything live): {id, type, label, sym?, help?, scene? (revealed with that scene; default first)} plus
- slider {min,max,step,value} | toggle {value} | select {options:[{value,label}], value} | play {min,max,step,value,speed} (animated stepper)
+ slider {min,max,step,value} | toggle {value} | select {options:[{value,label}], value} | play {min,max,step,value,speed: steps per second} (slider with a play button: make the iteration counter itself a play control)
  vector {length: number|controlId, min,max,step, value:[...]} | simplex {length, value} (kept nonnegative, summing to 1) | matrix {min,max,step, value:[[...]], rowLabels?}
+
+Every control must be read by compute or render.
 
 compute(s): pure function of control values; return every number you display. Helpers on M: sum mean max min argmax range linspace zeros dot transpose matmul matvec scale add sub outer map2 rowSums colSums cumsum norm cosine clamp round softmax(v,T) softmaxRows normalize xlog2x (0·log 0 = 0) xlnx sigmoid relu fmt subDigits. Handle zeros, ties and boundaries; never return NaN.
 

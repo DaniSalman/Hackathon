@@ -59,6 +59,8 @@ def build_page(parts: dict[str, str], case: dict | None = None) -> str:
     data["controls"] = loads_lenient(parts.get("controls"), [])
     if case and case.get("source_url"):
         data["source_url"] = case["source_url"]  # trusted input, never taken from the model
+    if case and case.get("source_mode"):
+        data["source_mode"] = case["source_mode"]
     code = "\n\n".join(parts.get(k, "") for k in ("compute", "render", "checks") if parts.get(k))
     files = {
         "STYLE": (HERE / "style.css").read_text(encoding="utf-8"),
