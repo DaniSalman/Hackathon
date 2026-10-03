@@ -1,0 +1,162 @@
+<content>
+{
+  "title": "Scaled dot-product attention: how a query picks what to look at",
+  "hook": "One query vector wants information from three keys. How much should it take from each one's value?",
+  "why": "Attention lets a query compare itself to every key, turn the comparisons into shares that add to 1, and read out a mix of the values. The scaling by 1/√d_k keeps those comparisons from blowing up when the key dimension d_k is large.",
+  "symbols": [
+    {"key": "Q", "meaning": "queries, one per row (here 2 rows)", "color": "blue"},
+    {"key": "K", "meaning": "keys, one per row (here 3 rows)", "color": "green"},
+    {"key": "V", "meaning": "values, one per key", "color": "red"},
+    {"key": "d_k", "meaning": "dimension of each query and key", "color": "purple"},
+    {"key": "alpha", "meaning": "attention weights: each score row after softmax, summing to 1", "color": "yellow"}
+  ],
+  "scenes": [
+    {"id": "s1", "title": "Compare the query with every key",
+     "caption": "Each row of {Q} is a query, each row of {K} is a key. The score between query i and key j is the dot product of those two rows. **Drag the matrix cells**: scores update live. Cycling the matrix panel walks (i,j) down the whole {Q}{K}^T grid.",
+     "pause": "Query 1 is [1, 0]. Keys are [1, 0], [0, 1], [1, 1]. Which key should win before scaling?"},
+    {"id": "s2", "title": "Divide each score by √d_k, then softmax the row",
+     "caption": "Scores get large when {d_k} is large, so we divide them by √{d_k}. Then softmax each row of scores into weights {alpha} that are positive and add to 1. **Toggle scaling off** to see the weights collapse toward 0 and 1.",
+     "pause": "If one score is much bigger than the others, roughly what does its weight {alpha} become? What does the output row become?"},
+    {"id": "s3", "title": "Weighted sum of the values",
+     "caption": "The output row i is Σ_j {alpha}_ij · {V}_j: a blend of value rows, mixed by the weights. {alpha} picks the recipe; {V} supplies the ingredients. A near-1 weight means the output is almost exactly that one value row."}
+  ],
+  "equation": "Attention({Q}, {K}, {V}) = softmax({Q}{K}^T / √{d_k}) {V}",
+  "equation_words": "Multiply each query by every key ({Q}{K}^T), divide all scores by √{d_k} to tame their size, turn each row into weights {alpha} with softmax so they sum to 1, then use those weights to mix the value rows {V} into an output.",
+  "explorations": [
+    {"title": "Equal scores give an even split", "focus": "s2",
+     "predict": "If query 1 gives the same score to all three keys, what weights does softmax produce?",
+     "change": "Keep scaling on. Type in keys that make query 1 = [1,0] score equally against all of them, e.g. keys [1,0], [0,1], [-1,0] all give score... actually watch: scores become 1, 0, -1. Instead change query to [0,0]? Predict first, then set the query row to [1,1] and keys [1,0], [1,1], [0,0] so the raw scores are 1, 2, 1.",
+     "preset": {"scale": true, "Q": [[1, 0], [1, 1]], "K": [[1, 0], [0, 1], [1, 1]], "V": [[1, 0], [0, 1], [1, 1]]},
+     "observe": "Query 1 scores 1, 0, 1 against the three keys; dividing by √2 = 1.414 gives 0.707, 0, 0.707; softmax gives {alpha} ≈ 0.443, 0.114, 0.443 (sum 1). Query 2 scores 1, 1, 2 → scaled 0.707, 0.707, 1.414 → {alpha} ≈ 0.286, 0.286, 0.428.",
+     "why": "Softmax exponentiates each scaled score and divides by the row sum. Two equal scaled scores always get equal weights, and a larger third score pulls weight toward key 3."},
+    {"title": "One dominant score saturates the weight", "focus": "s3",
+     "predict": "If query 1 scores 6 on key 3 and 0 on the others, what is {alpha} on key 3 with scaling on versus off?",
+     "change": "Set the query row so the raw scores are large but unequal: query 1 = [3, 3], keys [1, 0], [0, 1], [1, 1] give scores 3, 3, 6.",
+     "preset": {"scale": false, "Q": [[3, 3], [1, 0]], "K": [[1, 0], [0, 1], [1, 1]], "V": [[1, 0], [0, 1], [1, 1]]},
+     "observe": "No scaling: raw scores 3, 3, 6 → softmax ≈ 0.047, 0.047, 0.905. With scaling on: divided by √2 → 2.12, 2.12, 4.24 → {alpha} ≈ 0.109, 0.109, 0.783. Either way the output for query 1 is a mix dominated by value row 3 = [1, 1].",
+     "why": "Softmax is smooth: no finite score gives weight exactly 1, but large gaps push one weight toward 1 and the rest toward 0. That is where gradients get tiny, which is why the paper divides by √{d_k}."}
+  ],
+  "takeaway": "Attention = compare ({Q}{K}^T), tame (÷ √{d_k}), share (softmax rows → {alpha} summing to 1), then mix ({alpha}{V}).",
+  "misconception": "The weights {alpha} are the softmax of the scaled scores, not of {Q}, {K}, or {V} directly, and each row of {alpha} sums to 1 — columns do not. Scaling by 1/√{d_k} changes the softmax temperature, not the dot products themselves.",
+  "grounding": {
+    "paper": "Vaswani et al., Attention Is All You Need (2017)",
+    "section": "3.2.1 Scaled Dot-Product Attention",
+    "equation": "Equation (1): Attention(Q, K, V) = softmax(QK^T / √d_k) V",
+    "from_paper": [
+      "Inputs are queries and keys of dimension d_k, and values of dimension d_v.",
+      "We compute the dot products of the query with all keys, divide each by √d_k, and apply a softmax function to obtain the weights on the values.",
+      "Equation (1): Attention(Q, K, V) = softmax(QK^T / √d_k) V.",
+      "For large d_k the dot products grow large in magnitude, pushing softmax into regions with extremely small gradients; they scale by 1/√d_k to counteract this.",
+      "Footnote 1: if q and k have independent components with mean 0 and variance 1, then q·k = Σ q_i k_i has mean 0 and variance d_k."
+    ],
+    "simplifications": [
+      "We use 2 queries, 3 keys, d_k = 2 and d_v = 2 so everything fits on screen and can be checked by hand; the paper uses full matrices of shape (n × d_k) and values of dimension d_v.",
+      "The specific values in {Q}, {K}, {V} are our own toy example, chosen to make the two explorations land on round numbers.",
+      "The row-sum check and the matrix-cell dragging are interface choices, not part of the paper.",
+      "We do not reproduce any translation-quality or training results; the toy matrices only illustrate the formula."
+    ]
+  }
+}
+</content>
+<controls>
+[
+  {"id": "Q", "type": "matrix", "label": "queries {Q} (2 rows × 2 cols)", "sym": "Q", "min": -3, "max": 3, "step": 0.5, "value": [[1, 0], [1, 1]], "rowLabels": ["{q_1}", "{q_2}"]},
+  {"id": "K", "type": "matrix", "label": "keys {K} (3 rows × 2 cols)", "sym": "K", "min": -3, "max": 3, "step": 0.5, "value": [[1, 0], [0, 1], [1, 1]], "rowLabels": ["{k_1}", "{k_2}", "{k_3}"]},
+  {"id": "V", "type": "matrix", "label": "values {V} (3 rows × 2 cols)", "sym": "V", "min": -3, "max": 3, "step": 0.5, "value": [[1, 0], [0, 1], [1, 1]], "rowLabels": ["{v_1}", "{v_2}", "{v_3}"]},
+  {"id": "scale", "type": "toggle", "label": "divide scores by √{d_k}", "sym": "d_k", "value": true, "help": "Turn off to see raw dot-product scores fed to softmax.", "scene": "s2"},
+  {"id": "walk", "type": "play", "label": "cycle the score grid (i,j)", "min": 0, "max": 5, "step": 1, "value": 0, "speed": 1, "scene": "s1"}
+]
+</controls>
+<compute>
+function compute(s) {
+  const dk = s.K[0].length;
+  const raw = M.matmul(s.Q, M.transpose(s.K));          // 2 × 3 raw scores
+  const scaleFactor = s.scale ? 1 / Math.sqrt(dk) : 1;
+  const scores = raw.map(row => row.map(v => v * scaleFactor));
+  const weights = M.softmaxRows(scores);                 // each row sums to 1
+  const out = M.matmul(weights, s.V);                    // 2 × d_v outputs
+  const rowSums = M.rowSums(weights);
+
+  // walk index: (i,j) pairs in row-major order
+  const pairs = [];
+  for (let i = 0; i < s.Q.length; i++) for (let j = 0; j < s.K.length; j++) pairs.push([i, j]);
+  const wi = M.clamp(s.walk | 0, 0, pairs.length - 1);
+  const [ci, cj] = pairs[wi];
+  const q = s.Q[ci], k = s.K[cj];
+  const products = q.map((qk, t) => qk * k[t]);
+  const dotVal = M.sum(products);
+
+  return { dk, raw, scores, weights, out, rowSums, pairs, ci, cj, q, k, products, dotVal,
+           scaleFactor, wi,
+           dRow: pairs.length, rowLabels: ['q1', 'q2'], keyLabels: ['k1', 'k2', 'k3'] };
+}
+</compute>
+<render>
+function render(s, r, kit) {
+  // --- Scene 1 ---
+  kit.matrix('#s1', s.Q, { sym: 'Q', bind: 'Q', rowLabels: r.rowLabels, colLabels: ['dim 1', 'dim 2'],
+    decimals: 2, min: -3, max: 3, title: 'Queries {Q}', highlight: { rows: [r.ci] } });
+  kit.matrix('#s1', s.K, { sym: 'K', bind: 'K', rowLabels: r.keyLabels, colLabels: ['dim 1', 'dim 2'],
+    decimals: 2, min: -3, max: 3, title: 'Keys {K}', highlight: { rows: [r.cj] } });
+  kit.readout('#s1', { width: 0.5, label: 'Dot product under the cursor: {q_i} · {k_j}',
+    value: r.dotVal, sym: 'd_k', decimals: 2,
+    note: 'Row ' + (r.ci + 1) + ' of {Q} against row ' + (r.cj + 1) + ' of {K}.' });
+  kit.steps('#s1', [
+    { label: '{q_1} entrywise product with {k_j}', value: r.products, sym: 'Q', op: 'multiply' },
+    { label: 'their sum', value: r.dotVal, op: 'add', sym: 'K' }
+  ], { width: 0.5, decimals: 2 });
+  kit.matrix('#s1', r.raw, { sym: 'Q', rowLabels: r.rowLabels, colLabels: r.keyLabels, decimals: 2,
+    title: 'Raw scores {Q}{K}^T', axes: ['query', 'key'], highlight: { cells: [[r.ci, r.cj]] },
+    tip: (i, j, v) => 'score of q' + (i + 1) + ' with k' + (j + 1) + ' = ' + kit.fmt(v, 2) });
+
+  // --- Scene 2 ---
+  kit.matrix('#s2', r.scores, { sym: 'd_k', rowLabels: r.rowLabels, colLabels: r.keyLabels, decimals: 3,
+    title: 'Scaled scores {Q}{K}^T / √{d_k}   (scale = ' + (s.scale ? 'on, factor ' + kit.fmt(r.scaleFactor, 3) : 'off') + ')',
+    axes: ['query', 'key'] });
+  kit.matrix('#s2', r.weights, { sym: 'alpha', rowLabels: r.rowLabels, colLabels: r.keyLabels, decimals: 3,
+    min: 0, max: 1, title: 'Weights {alpha} = softmax of each row', axes: ['query', 'key'],
+    tip: (i, j, v) => 'weight that q' + (i + 1) + ' puts on k' + (j + 1) + ' = ' + kit.fmt(v, 3) });
+  kit.bars('#s2', r.weights[0], { sym: 'alpha', labels: r.keyLabels, axis: 'key', decimals: 3,
+    title: 'Weights {alpha} for query 1', max: 1, ref: { y: 1 / s.K.length, label: 'uniform 1/3' } });
+  kit.bars('#s2', r.weights[1], { sym: 'alpha', labels: r.keyLabels, axis: 'key', decimals: 3, width: 0.5,
+    title: 'Weights {alpha} for query 2', max: 1, ref: { y: 1 / s.K.length, label: 'uniform 1/3' } });
+  kit.readout('#s2', { width: 0.5, label: 'Row sum of {alpha}', value: r.rowSums[0], sym: 'alpha',
+    decimals: 3, min: 0, max: 1, note: 'Every softmax row sums to exactly 1 — that is what "weights on the values" means.' });
+
+  // --- Scene 3 ---
+  kit.steps('#s3', [
+    { label: '{alpha} row 1', value: r.weights[0], sym: 'alpha' },
+    { label: '{V}', value: s.V, sym: 'V', op: 'mix rows' },
+    { label: 'output row 1', value: r.out[0], op: 'weighted sum', sym: 'V' }
+  ], { decimals: 3, width: 0.5, });
+  kit.matrix('#s3', r.out, { sym: 'V', rowLabels: r.rowLabels, colLabels: ['out 1', 'out 2'], decimals: 3,
+    title: 'Outputs {alpha}{V}', axes: ['query', 'out'] });
+  kit.formula('#s3', 'q1 output = ' +
+    r.weights[0].map((w, j) => kit.fmt(w, 3) + '·v' + (j + 1)).join(' + ') + ' = [' +
+    r.out[0].map(v => kit.fmt(v, 2)).join(', ') + ']');
+  kit.note('#s3', 'When one weight {alpha} is near 1, the output row is almost exactly that one value row. When all weights are equal, the output is the plain average of the value rows.');
+}
+</render>
+<checks>
+const checks = [
+  { label: 'each weight row sums to 1', test: (s, r) => r.rowSums.every(x => Math.abs(x - 1) < 1e-9),
+    show: (s, r) => 'row sums = ' + r.rowSums.map(x => M.fmt(x, 6)).join(', ') },
+  { label: 'all weights are between 0 and 1', test: (s, r) => r.weights.every(row => row.every(w => w >= -1e-12 && w <= 1 + 1e-9)) },
+  { label: 'softmax preserves the score ordering', test: (s, r) => r.weights.every((row, i) => row.every((w, j) => row.every((w2, j2) => Math.abs(r.scores[i][j] - r.scores[i][j2]) < 1e-12 || (r.scores[i][j] < r.scores[i][j2]) === (w < w2)))) },
+  { label: 'scaling off reproduces raw scores', test: (s, r) => s.scale || r.scores.every((row, i) => row.every((v, j) => Math.abs(v - r.raw[i][j]) < 1e-12)) }
+];
+</checks>
+<tests>
+[
+  {"state": {"Q": [[0, 0], [0, 0]], "K": [[1, 0], [0, 1], [1, 1]], "V": [[1, 0], [0, 1], [1, 1]], "scale": true, "walk": 0},
+   "expect": {"weights": [[0.3333333333, 0.3333333333, 0.3333333333], [0.3333333333, 0.3333333333, 0.3333333333]], "out": [[0.6666666667, 0.6666666667], [0.6666666667, 0.6666666667]]}, "tol": 1e-6},
+  {"state": {"Q": [[1, 1], [0, 0]], "K": [[1, 0], [0, 1], [1, 1]], "V": [[1, 0], [0, 1], [1, 1]], "scale": false, "walk": 0},
+   "expect": {"raw": [[1, 1, 2], [0, 0, 0]], "weights": [[0.2119415576, 0.2119415576, 0.5761168848], [0.3333333333, 0.3333333333, 0.3333333333]]}, "tol": 1e-6},
+  {"state": {"Q": [[0, 0], [0, 0]], "K": [[0, 0], [0, 0], [0, 0]], "V": [[1, 2], [3, 4], [5, 6]], "scale": true, "walk": 0},
+   "expect": {"scores": [[0, 0, 0], [0, 0, 0]], "weights": [[0.3333333333, 0.3333333333, 0.3333333333], [0.3333333333, 0.3333333333, 0.3333333333]], "out": [[3, 4], [3, 4]]}, "tol": 1e-6},
+  {"state": {"Q": [[1, 0], [0, 1]], "K": [[10, 0], [0, 10], [-10, 0]], "V": [[1, 0], [0, 1], [2, 2]], "scale": false, "walk": 0},
+   "expect": {"scores": [[10, 0, -10], [0, 10, 0]]}, "tol": 1e-6},
+  {"state": {"Q": [[1, 1], [1, 1]], "K": [[1, 0], [0, 1], [1, 1]], "V": [[1, 0], [0, 1], [1, 1]], "scale": true, "walk": 5},
+   "expect": {"scores": [[0.7071067812, 0.7071067812, 1.4142135624], [0.7071067812, 0.7071067812, 1.4142135624]], "weights": [[0.25, 0.25, 0.5], [0.25, 0.25, 0.5]], "out": [[0.75, 0.75], [0.75, 0.75]]}, "tol": 1e-6}
+]
+</tests>

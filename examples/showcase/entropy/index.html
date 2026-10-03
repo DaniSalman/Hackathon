@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
-<title>Entropy in bits: how much do you learn by watching?</title>
+<title>Entropy in bits: turn weights into probabilities, then add up each outcome&#x27;s share</title>
 <style>/* style.css — 3Blue1Brown-inspired theme for Paper -> Playground pages.
    Dark stage, Manim-like palette, serif math, calm motion. Generic: no paper-specific rules. */
 :root {
@@ -304,6 +304,8 @@ input.num { -moz-appearance: textfield; }
 .sources { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 24px; }
 .cite { color: var(--ink); margin: 6px 0 16px; }
 .cite .src { color: var(--mute); font-size: 14px; word-break: break-all; }
+.src-mode { display: inline-block; margin-top: 6px; font-size: 13.5px; color: var(--mute); }
+.src-mode.mode-none { color: var(--gold); }
 .src-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
 .src-grid ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink2); }
 .src-grid li { margin: 5px 0; }
@@ -1529,6 +1531,7 @@ var M = (function () {
     var c = Object.assign({}, raw);
     c.id = String(c.id);
     var t = String(c.type || c.kind || 'slider').toLowerCase(); c.type = TYPE_ALIAS[t] || t;
+    if (c.type === 'slider' && c.play) c.type = 'play';   // a slider can carry its own play button
     if (['slider', 'play', 'toggle', 'select', 'vector', 'simplex', 'matrix'].indexOf(c.type) < 0) c.type = Array.isArray(c.value) ? (Array.isArray(c.value[0]) ? 'matrix' : 'vector') : typeof c.value === 'boolean' ? 'toggle' : 'slider';
     if (c.type === 'slider' || c.type === 'play') {
       c.min = num(c.min, 0); c.max = num(c.max, Math.max(c.min + 1, num(c.value, 1))); if (c.max <= c.min) c.max = c.min + 1;
@@ -1708,7 +1711,7 @@ var M = (function () {
             var v = state[c.id] + c.step;
             if (v > c.max + 1e-9) { if (c.loop) v = c.min; else { stopPlay(box, btn); return; } }
             setControl(c.id, v);
-          }, c.interval || Math.round(1000 / (c.speed || 4)));
+          }, c.interval || (c.speed > 20 ? c.speed : Math.round(1000 / (c.speed || 4))));   // speed: steps/s, or ms/step if > 20
         });
       }
       box._sync = function (force) {
@@ -1905,6 +1908,13 @@ var M = (function () {
     if (mis) $('#misconception').innerHTML = md(mis); else $('#misc-box').style.display = 'none';
     $('#cite').innerHTML = [G.paper ? '<b>' + md(G.paper) + '</b>' : '', G.section ? md(G.section) : '', G.equation ? md(G.equation) : ''].filter(Boolean).join(' &#183; ') +
       (DATA.source_url ? '<br><span class="src">' + esc(DATA.source_url) + '</span>' : '');
+    var SRC_MODE = {
+      supplied: 'Excerpt: supplied with the case.',
+      searched: 'Excerpt: retrieved from the source URL during generation (OpenRouter web search); quoted text may contain extraction noise.',
+      fetched: 'Excerpt: retrieved from the source URL during generation (OpenRouter web fetch); quoted text may contain extraction noise.',
+      none: 'No excerpt was available: statements marked "from the paper" rely on the model\'s knowledge of the paper and could not be checked against its text.'
+    };
+    if (SRC_MODE[DATA.source_mode]) $('#cite').insertAdjacentHTML('beforeend', '<br><span class="src-mode mode-' + DATA.source_mode + '">' + esc(SRC_MODE[DATA.source_mode]) + '</span>');
     $('#from-paper').innerHTML = asArray(G.from_paper || G.supported).map(function (t) { return '<li>' + md(t) + '</li>'; }).join('');
     $('#ours').innerHTML = asArray(G.simplifications || G.ours).map(function (t) { return '<li>' + md(t) + '</li>'; }).join('');
     // controls
@@ -2069,122 +2079,112 @@ var M = (function () {
   window.P2P = { state: state, setControl: setControl, errors: function () { return ERRORS.slice(); }, result: function () { return result; } };
 })();
 </script>
-<script id="p2p-data" type="application/json">{"title": "Entropy in bits: how much do you learn by watching?", "hook": "Two weather services each send you one word every morning. One always says \"sunny\". The other says \"sun\", \"cloud\", \"rain\", or \"snow\" with equal odds. Which message actually carries information — and can one number say how much?", "why": "Shannon wanted a single number for how much choice a source of messages has. For a discrete distribution {p_i} over {n} outcomes, that number is {H}, measured in bits. It is 0 when you already know the answer, and biggest when all outcomes are equally likely.", "symbols": [{"key": "p_i", "meaning": "probability of outcome i (the bars below, after normalising the weights)", "color": "blue"}, {"key": "w_i", "meaning": "the raw nonnegative weight you type for outcome i", "color": "purple"}, {"key": "n", "meaning": "number of active outcomes", "color": "green"}, {"key": "c_i", "meaning": "contribution of outcome i: −{p_i} log₂ {p_i}, in bits", "color": "teal"}, {"key": "H", "meaning": "entropy: the total, Σ {c_i}, in bits", "color": "yellow"}], "scenes": [{"id": "s1", "title": "Weights in, probabilities out", "caption": "Type any nonnegative numbers as weights {w_i}. The page divides by their sum to get {p_i}, so the probabilities always add to 1. Set a weight to 0 and that outcome is off: it appears in the list, but it contributes nothing.", "pause": "If one outcome is certain, how many bits should this whole thing give you?"}, {"id": "s2", "title": "Each outcome's share of the surprise", "caption": "Outcome i contributes {c_i} = −{p_i} log₂ {p_i} bits. Rare outcomes are surprising but seldom happen; likely outcomes happen often but surprise nobody — so {c_i} is small at both ends and largest near {p_i} ≈ 0.37. A term with {p_i} = 0 or {p_i} = 1 contributes exactly 0, because p log₂ p tends to 0 at both ends.", "pause": "Add up the four shares of the fair weather service. What total do you expect?"}, {"id": "s3", "title": "Add the shares: {H}", "caption": "{H} is just the sum of the {c_i}. It hits 0 bits when one outcome is certain, and its ceiling for {n} outcomes is log₂ {n} bits, reached only when all {p_i} = 1/{n}.", "pause": "Which distribution makes {H} as large as the ceiling allows?"}, {"id": "s4", "title": "Where the ceiling sits", "caption": "Move {H} around and watch the gauge. The ceiling log₂ {n} moves too when you change {n}: adding an outcome you can actually see raises the maximum, but adding one with weight 0 leaves {H} exactly where it was."}], "equation": "{H} = −Σᵢ {p_i} log₂ {p_i} = Σᵢ {c_i},   with {p_i} = {w_i} / Σⱼ {w_j}", "equation_words": "Turn your weights {w_i} into probabilities {p_i} by dividing by their total. Each outcome gets a share {c_i} = −{p_i} log₂ {p_i} of the surprise, and {H} is the sum of those shares, in bits. Terms with {p_i} = 0 are skipped: 0 · log₂ 0 is taken as 0.", "explorations": [{"title": "Certainty costs nothing, and zero weight means no term", "focus": "s3", "predict": "Set {n} = 4 and give outcome 1 all the weight: {w_i} = (8, 0, 0, 0). What are {p_i} and {H}, and what happens to the three zero-weight outcomes?", "change": "Drag the first bar to its maximum and the other three to 0.", "preset": {"n": 4, "w": [8, 0, 0, 0]}, "observe": "The page shows {p_i} = (1, 0, 0, 0) and {H} = 0 bits. The contributions are 0, 0, 0, 0 — the three zero-weight outcomes still get a row, with an exact 0, never a blank or a NaN.", "why": "−1 · log₂ 1 = 0 for the certain outcome, and the convention 0 · log₂ 0 = 0 (the continuous limit of −p log₂ p as p → 0⁺, which really does go to 0) removes the rest. You learn nothing new from a message you already knew."}, {"title": "Uniform hits the ceiling log₂ {n}", "focus": "s3", "predict": "With {n} = 4, which distribution makes {H} largest, and what is that largest value?", "change": "Make all four weights equal, e.g. {w_i} = (3, 3, 3, 3), then raise {n} to 5 and equalise again.", "preset": {"n": 4, "w": [3, 3, 3, 3]}, "observe": "For {n} = 4 the page shows each {c_i} = 0.500 bits, so {H} = 2.000 bits, exactly log₂ 4. With {n} = 5 equal weights each {c_i} ≈ 0.464 and {H} ≈ 2.322 = log₂ 5.", "why": "For fixed {n}, entropy is maximised when all {p_i} are equal to 1/{n}, and then {H} = −Σ (1/{n}) log₂(1/{n}) = log₂ {n}. Equal odds are the hardest case to guess."}], "takeaway": "Entropy {H} = −Σ {p_i} log₂ {p_i} converts a distribution into one number in bits: 0 for a certain outcome, log₂ {n} at most for {n} equally likely outcomes, and terms with {p_i} = 0 contribute exactly 0.", "misconception": "{H} is a property of the whole distribution, not of a single outcome. A single term {c_i} = −{p_i} log₂ {p_i} peaks near {p_i} ≈ 0.37 (about 0.53 bits), not at {p_i} = 0.5 — yet the total {H} is largest when all outcomes are equally likely. Also, {H} uses the probabilities only: it does not care what the outcomes mean, or whether they are ordered, and it says nothing about a single message.", "grounding": {"paper": "C. E. Shannon, A Mathematical Theory of Communication (1948)", "section": "Part I, Section 6: Choice, Uncertainty and Entropy", "equation": "Theorem 2: H = −K Σ pᵢ log pᵢ", "from_paper": ["For a discrete probability distribution p_1, …, p_n, the entropy is H = −Σ pᵢ log₂ pᵢ (Theorem 2 with base-2 logs, so the unit is bits).", "A term with pᵢ = 0 contributes zero, by continuity.", "A certain outcome gives zero entropy: H = 0 if and only if one pᵢ = 1 and all others are 0.", "For a fixed number of outcomes n, H is largest, and equal to log₂ n, when all pᵢ = 1/n."], "simplifications": ["The weights {w_i} and the division {p_i} = {w_i} / Σ {w_j} are an interface device for editing probabilities; the source talks about p_i directly.", "The 4 weather outcomes, the numbers, and the −p log₂ p curve are our own illustration; the source plots the two-outcome case H(p) in Fig. 7.", "Dragging one bar rescales the others (weights are kept nonnegative and renormalised), which is a UI choice, not part of the theory.", "The gauge and the ceiling marker for log₂ {n} are presentation choices."]}, "controls": [{"id": "n", "type": "slider", "label": "number of outcomes {n}", "sym": "n", "help": "How many outcomes you can see. Extra outcomes start with weight 0 and add nothing until you give them weight.", "min": 2, "max": 6, "step": 1, "value": 4}, {"id": "w", "type": "vector", "label": "weights {w_i} (any nonnegative numbers)", "sym": "w_i", "help": "These are normalised to probabilities {p_i} every time you change them. A zero weight means a zero-probability outcome whose term is exactly 0.", "length": "n", "min": 0, "max": 10, "step": 0.5, "value": [4, 2, 1, 1], "scene": "s1"}, {"id": "uniform", "type": "toggle", "label": "equalise all weights", "help": "Sets every weight to the same value, which makes all probabilities 1/{n} and pushes {H} up to log₂ {n}.", "value": false, "scene": "s3"}], "source_url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf"}</script>
+<script id="p2p-data" type="application/json">{"title": "Entropy in bits: turn weights into probabilities, then add up each outcome's share", "hook": "You type in weights — 8, 4, 2, 2. What single number tells you how unpredictable the outcome of that machine is, and why is it measured in **bits**?", "why": "Shannon wanted one number for how much choice a source of messages has. You do not know probabilities out of thin air; usually you have weights or counts. Normalize, then let each outcome purchase some uncertainty. Entropy is the total bill, paid in bits.", "symbols": [{"key": "n", "meaning": "number of active outcomes", "color": "green"}, {"key": "w_i", "meaning": "nonnegative weight you type for outcome i (e.g. a count)", "color": "purple"}, {"key": "p_i", "meaning": "normalized probability of outcome i: w_i divided by Σ w", "color": "blue"}, {"key": "c_i", "meaning": "outcome i's contribution to entropy: −p_i log₂ p_i bits", "color": "teal"}, {"key": "H", "meaning": "total entropy: average uncertainty in bits", "color": "yellow"}, {"key": "Hmax", "meaning": "largest possible entropy for this n: log₂ n bits", "color": "red"}], "scenes": [{"id": "s1", "title": "Weights first, probabilities second", "caption": "Four outcomes with weights {w_i} = 8, 4, 2, 2 (the starting values). **Drag a bar** to change a weight; the others are untouched. The probabilities {p_i} below are just the weights divided by their total, so they always add to 1.", "pause": "The weights 8, 4, 2, 2 and the weights 0.8, 0.4, 0.2, 0.2 describe the same machine. Does the uncertainty of the machine change when I scale every weight by the same factor?"}, {"id": "s2", "title": "Each outcome buys −{p_i} log₂ {p_i} bits", "caption": "Outcome i contributes {c_i} = −{p_i} log₂ {p_i} bits. All contributions sit on one curve. A near-certain outcome happens often but surprises no one; a rare outcome surprises a lot but almost never happens. That is why the total is not dominated by the rarest outcome.", "pause": "An outcome with weight 0 has probability 0. How much does it contribute?"}, {"id": "s3", "title": "Add the shares: {H}", "caption": "{H} is the sum of the {c_i}. It is 0 bits when one outcome is certain, and it climbs to {Hmax} = log₂ {n} bits when the active outcomes are equally likely. Nothing is added for a zero-weight outcome — that is the continuity convention."}], "equation": "{H} = −Σ {p_i} log₂ {p_i},  where {p_i} = {w_i} / Σ {w_i}", "equation_words": "Divide every weight by the total to get probabilities {p_i}. Each outcome's surprise is −log₂ {p_i}; weight it by how often it happens, {p_i}; add the pieces.", "explorations": [{"title": "One outcome certain: zero bits", "focus": "s3", "predict": "Set the first weight to 10 and the rest to 0. How many bits of uncertainty are left?", "change": "Drag the first bar to 10 and the other three bars to 0.", "preset": {"n": 4, "w": [10, 0, 0, 0]}, "observe": "{H} = 0.000 bits. {p_i} = 1 for the first outcome and 0 for the others; every {c_i} is 0, including the three at weight 0.", "why": "log₂ 1 = 0 kills the certain outcome's term. For a zero-probability outcome the formula would ask for 0 · log₂ 0, which is undefined as a product, so we take the limit p log₂ p → 0 as p → 0 and call the contribution exactly 0. The page's test confirms it: zero probability, zero bits."}, {"title": "Equal weights: the maximum", "focus": "s3", "predict": "With {n} = 4 active outcomes, which weights make {H} as large as possible, and how many bits is that?", "change": "Make all four weights equal — any equal value works, say 5, 5, 5, 5.", "preset": {"n": 4, "w": [5, 5, 5, 5]}, "observe": "{p_i} = 0.25 each, every contribution {c_i} = 0.5 bits, and {H} = 2.000 bits = log₂ 4 = {Hmax}.", "why": "For a fixed {n}, {H} is largest when all {p_i} = 1/{n}, giving log₂ {n}. Note the weights themselves never enter the formula — only their ratios do. Scaling 5, 5, 5, 5 to 1, 1, 1, 1 leaves {H} unchanged, which answers the pause question from scene 1."}], "takeaway": "Normalize your weights into probabilities, let outcome i buy {c_i} = −{p_i} log₂ {p_i} bits, and add them. {H} = 0 bits when the outcome is certain, {H} = log₂ {n} bits when the {n} active outcomes are equally likely, and a zero weight adds nothing.", "misconception": "A single contribution {c_i} tells you nothing about the total, and the total is not the average of the contributions. Also, {H} is not the number of bits needed to write down one outcome — it is the average information per outcome, and it depends only on the ratios of the weights, never on their scale. Finally, adding outcomes with weight 0 does not change {H}: n counts only the outcomes with positive probability.", "grounding": {"paper": "C. E. Shannon, A Mathematical Theory of Communication (1948)", "section": "Part I, Section 6: Choice, Uncertainty and Entropy", "equation": "H = −Σᵢ pᵢ log₂ pᵢ", "from_paper": ["For a discrete probability distribution p₁,…,pₙ, the entropy with base-two logarithms is H = −Σᵢ pᵢ log₂ pᵢ.", "A zero-probability term contributes zero by continuity.", "A certain outcome has zero entropy.", "Uniform probabilities maximize entropy for a fixed number of outcomes, giving log₂ n bits."], "simplifications": ["The excerpt's pᵢ are the learner's raw weights divided by their total; the normalization step wᵢ/Σw is our interface choice so the bars stay nonnegative and free to drag.", "The count n is the number of outcomes with positive weight; the page drops weight-0 outcomes from n so that the comparison H ≤ log₂ n stays true.", "The numbers 8, 4, 2, 2 and the label set x₁…x₄ are our own example, not from the paper.", "The −p log₂ p curve plot, the contribution bars and the as-uncertain-as-2^H readout are our visualization choices; the excerpt states only the maximum and the zero cases.", "Dragging rescales nothing else — the other weights are left alone, which is an interface decision, not part of the theory."]}, "controls": [{"id": "n", "type": "slider", "label": "number of outcomes {n}", "sym": "n", "min": 2, "max": 6, "step": 1, "value": 4, "scene": "s1"}, {"id": "w", "type": "vector", "label": "weights {w_i} (drag the bars, zero is allowed)", "sym": "w_i", "length": "n", "min": 0, "max": 10, "step": 0.5, "value": [8, 4, 2, 2], "scene": "s1"}, {"id": "logScale", "type": "toggle", "label": "mark log₂ {n} on the {H} gauge", "sym": "Hmax", "value": true, "scene": "s3"}], "source_url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf", "source_mode": "supplied"}</script>
 <script>function compute(s) {
-  const n = M.round(s.n);
-  let w = s.w.slice(0, n).map(x => Math.max(0, x));
-  while (w.length < n) w.push(0);
-  if (s.uniform) w = w.map(() => 1);
+  const n = Math.round(s.n);
+  // Keep only the active outcomes and clamp weights to be safe.
+  const w = s.w.slice(0, n).map(v => Math.max(0, Number.isFinite(v) ? v : 0));
+  const W = M.sum(w);
 
-  const total = M.sum(w);
-  // All-zero weights: fall back to uniform so we never divide by zero or return NaN.
-  const degenerate = total <= 0;
-  const p = degenerate ? w.map(() => 1 / n) : M.normalize(w);
+  // If every weight is zero, fall back to a uniform distribution so nothing is NaN.
+  const allZero = W <= 0;
+  const p = allZero ? w.map(() => 1 / w.length) : w.map(v => v / W);
 
-  const contrib = p.map(x => -M.xlog2x(x));   // 0·log 0 = 0, and p=1 gives 0
+  // Guard the zero term explicitly: 0·log2 0 -> 0 by continuity.
+  const contrib = p.map(x => x > 0 ? -x * Math.log2(x) : 0);
   const H = M.sum(contrib);
-  const Hmax = Math.log2(n);
-  const pMax = p.length ? M.max(p) : 0;
+
+  // n active = positive probability only, so H <= log2(nActive) holds.
+  const nActive = p.filter(x => x > 0).length;
+  const Hmax = nActive > 0 ? Math.log2(nActive) : 0;
 
   return {
-    n,
-    w,
-    total,
-    degenerate,
-    p,
-    contrib,
-    H,
-    Hmax,
-    uniformGap: Hmax - H,
+    n, w, W, p,
+    contrib,               // c_i in bits
+    H, Hmax, nActive,
+    allZero,
     labels: p.map((_, i) => 'x' + M.subDigits(i + 1)),
-    // number of equally likely outcomes H is worth, 2^H
-    effective: Math.pow(2, H)
+    ratio: Hmax > 0 ? H / Hmax : 0,
+    effective: Math.pow(2, H)   // "as uncertain as this many equally likely outcomes"
   };
 }
 
 function render(s, r, kit) {
-  const labels = r.labels;
-
-  // ---- Scene 1: weights in, probabilities out ----
+  // --- panel 1: the raw weights the learner drags ---
   kit.bars('#s1', r.w, {
-    bind: 'w', sym: 'w_i', labels, axis: 'outcome', decimals: 2, height: 210,
-    min: 0, max: Math.max(1, M.max(r.w)),
-    title: 'Your weights {w_i} — drag these'
-  });
-  kit.readout('#s1', {
-    width: 0.5, label: 'total weight Σ {w_i}', value: r.total, decimals: 2, sym: 'w_i',
-    min: 0, max: Math.max(1, r.n * M.max(r.w)),
-    note: r.degenerate
-      ? 'All weights are zero. The page falls back to equal probabilities 1/{n} so nothing breaks; give one bar some weight to leave this state.'
-      : 'Each probability is {w_i} divided by this total.'
-  });
-  kit.bars('#s1', r.p, {
-    sym: 'p_i', labels, axis: 'outcome', decimals: 3, height: 210, min: 0, max: 1,
-    title: 'Probabilities {p_i} — they always sum to 1',
-    ref: { y: 1 / r.n, label: 'uniform 1/{n}' }
+    bind: 'w', sym: 'w_i', labels: r.labels, axis: 'outcome',
+    decimals: 1, min: 0, max: 10, height: 230,
+    title: 'Weights {w_i} you type (total Σw = ' + kit.fmt(r.W, 1) + ')',
+    ref: { y: r.W / r.n, label: 'average weight' }
   });
 
-  // ---- Scene 2: per-outcome contribution ----
+  // --- panel 2: the normalized probabilities ---
+  kit.bars('#s1', r.p, {
+    bind: 'w', sym: 'p_i', labels: r.labels, axis: 'outcome',
+    decimals: 3, min: 0, max: 1, height: 230,
+    title: 'Normalized probabilities {p_i} = {w_i} / Σw (they always sum to 1)',
+    ref: { y: 1 / r.nActive, label: 'uniform 1/n' }
+  });
+  kit.formula('#s1',
+    r.allZero
+      ? 'All weights are zero, so the page falls back to uniform: {p_i} = 1 / {n}.'
+      : '{p_i} = (' + r.w.map(v => kit.fmt(v, 1)).join(', ') + ') / ' + kit.fmt(r.W, 1) +
+        ' = (' + r.p.map(v => kit.fmt(v, 3)).join(', ') + ')');
+
+  // --- scene 2: contributions and the curve ---
   kit.bars('#s2', r.contrib, {
-    sym: 'c_i', labels, axis: 'outcome', decimals: 3, height: 210, max: 0.6,
-    title: 'Share of each outcome, {c_i} = −{p_i} log₂ {p_i} (bits)'
+    sym: 'c_i', labels: r.labels, axis: 'outcome', width: 0.5,
+    decimals: 3, min: 0, max: 0.6, height: 230,
+    title: 'Share of each outcome, {c_i} = −{p_i} log₂ {p_i} (bits)',
+    highlight: r.contrib.map((c, i) => c === 0 ? i : -1).filter(i => i >= 0)
   });
   kit.plot('#s2', {
-    width: 0.5, height: 220, domain: [0, 1], yRange: [0, 0.6],
-    title: 'Every share lies on the curve −p log₂ p',
-    series: [{ fn: x => -M.xlog2x(x), sym: 'c_i', label: '−p log₂ p', area: true }],
-    points: r.p.map((p, i) => ({ x: p, y: r.contrib[i], label: labels[i], sym: 'p_i', axis: 'outcome', index: i })),
-    vlines: [{ x: 1 / Math.E, label: 'p = 1/e ≈ 0.37' }],
+    width: 0.5, height: 230, domain: [0, 1], yRange: [0, 0.6],
+    title: 'Every share sits on the curve −p log₂ p',
+    series: [{ fn: x => M.xlog2x(x), sym: 'c_i', label: '−p log₂ p', area: true }],
+    points: r.p.map((p, i) => ({ x: p, y: r.contrib[i], label: r.labels[i], sym: 'p_i', axis: 'outcome', index: i })),
+    vlines: [{ x: 1 / Math.E, label: 'peak at 1/e ≈ 0.37' }],
     xLabel: 'probability p', yLabel: 'bits'
   });
-  kit.formula('#s2', 'total so far: ' +
-    r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
+  kit.note('#s2', 'Closed outcomes with {p_i} = 0 contribute exactly {c_i} = 0 bits (the convention 0 · log₂ 0 = 0).');
 
-  // ---- Scene 3: sum them up ----
+  // --- scene 3: the total ---
+  const gaugeText = r.nActive === 0
+    ? 'no active outcomes'
+    : 'H = ' + kit.fmt(r.H, 3) + ' bits of at most ' + kit.fmt(r.Hmax, 3) + ' bits (log₂ ' + r.nActive + ')';
   kit.readout('#s3', {
-    width: 0.5, label: 'Entropy {H}', value: r.H, unit: 'bits', sym: 'H', decimals: 3,
-    min: 0, max: r.Hmax, compare: { value: r.Hmax, label: 'ceiling log₂ {n}' },
+    width: 0.5, label: 'entropy {H}', value: r.H, unit: 'bits', sym: 'H',
+    decimals: 3, min: 0, max: r.Hmax > 0 ? r.Hmax : 1,
+    compare: s.logScale ? { value: r.Hmax, label: 'max = log₂ {n} = ' + kit.fmt(r.Hmax, 3) } : undefined,
     note: r.H < 1e-12
-      ? 'Zero bits: the outcome is known in advance.'
+      ? 'No uncertainty: one outcome has all the weight.'
       : 'As uncertain as ' + kit.fmt(r.effective, 2) + ' equally likely outcomes.'
   });
   kit.steps('#s3', [
-    { label: 'shares {c_i} (bits)', value: r.contrib, sym: 'c_i' },
-    { label: 'total {H}', value: r.H, op: 'add the shares', sym: 'H', unit: 'bits' }
+    { label: 'probabilities {p_i}', value: r.p, sym: 'p_i' },
+    { label: 'shares {c_i} (bits)', value: r.contrib, sym: 'c_i', op: '−p log₂ p' },
+    { label: '{H}', value: r.H, sym: 'H', op: 'add the shares', unit: 'bits' }
   ], { width: 0.5, decimals: 3 });
-  kit.formula('#s3', '{H} = ' +
-    r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
-
-  // ---- Scene 4: the ceiling and where we sit under it ----
-  kit.readout('#s4', {
-    width: 0.5, label: 'gap to the ceiling, log₂ {n} − {H}', value: r.uniformGap, unit: 'bits',
-    sym: 'H', decimals: 3, min: 0, max: r.Hmax,
-    note: r.uniformGap < 1e-9
-      ? 'At the ceiling: all {n} outcomes equally likely, {H} = log₂ {n}.'
-      : 'Largest single probability {p_i} = ' + kit.fmt(r.pMax, 3) + '. The more one outcome dominates, the more this gap grows.'
-  });
-  kit.plot('#s4', {
-    width: 0.5, height: 220, domain: [2, 8], yRange: [0, 3.2],
-    title: 'Ceiling log₂ {n} as more outcomes become visible',
-    series: [{ fn: x => Math.log2(x), sym: 'n', label: 'log₂ {n}' }],
-    points: [{ x: r.n, y: r.Hmax, label: 'ceiling now', sym: 'n' }],
-    marker: { x: r.n, bind: 'n', label: '{n} = ' + r.n },
-    vlines: [{ x: r.n, label: '{n} = ' + r.n }],
-    xLabel: '{n} outcomes', yLabel: 'bits'
-  });
-  kit.bars('#s4', r.p, {
-    sym: 'p_i', labels, axis: 'outcome', decimals: 3, height: 190, min: 0, max: 1,
-    title: 'The distribution behind {H} = ' + kit.fmt(r.H, 3) + ' bits',
-    highlight: r.pMax > 0 ? [M.argmax(r.p)] : []
-  });
+  kit.formula('#s3',
+    '{H} = ' + r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
 }
 
 const checks = [
-  { label: 'probabilities sum to 1', test: (s, r) => Math.abs(M.sum(r.p) - 1) < 1e-9, show: (s, r) => 'Σ pᵢ = ' + M.fmt(M.sum(r.p), 6) },
-  { label: 'every {p_i} is nonnegative', test: (s, r) => r.p.every(p => p >= 0), show: (s, r) => 'min pᵢ = ' + M.fmt(M.min(r.p), 6) },
-  { label: '0 ≤ {H} ≤ log₂ {n}', test: (s, r) => r.H >= -1e-12 && r.H <= r.Hmax + 1e-9, show: (s, r) => M.fmt(r.H, 4) + ' ≤ ' + M.fmt(r.Hmax, 4) },
-  { label: 'zero-probability outcomes contribute exactly 0', test: (s, r) => r.p.every((p, i) => p > 0 || r.contrib[i] === 0), show: (s, r) => 'zeros: ' + r.p.filter(p => p === 0).length },
-  { label: 'entropy is unchanged by adding zero-weight outcomes', test: (s, r) => { const w = r.w.concat([0, 0, 0]).slice(0, Math.max(r.n, r.w.length + 3)); const t = M.sum(w) || 1; const p2 = w.map(x => x / t); const H2 = M.sum(p2.map(x => -M.xlog2x(x))); return Math.abs(H2 - r.H) < 1e-9; } }
+  { label: 'probabilities sum to 1',
+    test: (s, r) => Math.abs(M.sum(r.p) - 1) < 1e-9,
+    show: (s, r) => 'Σ p = ' + M.fmt(M.sum(r.p), 6) },
+  { label: 'every {p_i} is nonnegative',
+    test: (s, r) => r.p.every(x => x >= -1e-12),
+    show: (s, r) => 'min p = ' + M.fmt(M.min(r.p), 6) },
+  { label: 'zero-weight outcomes add exactly 0 bits',
+    test: (s, r) => r.p.every((p, i) => p > 0 || r.contrib[i] === 0),
+    show: (s, r) => r.p.filter(p => p === 0).length + ' closed outcome(s)' },
+  { label: '0 ≤ {H} ≤ log₂ n (n = active outcomes)',
+    test: (s, r) => r.H >= -1e-12 && r.H <= r.Hmax + 1e-9,
+    show: (s, r) => M.fmt(r.H, 4) + ' ≤ ' + M.fmt(r.Hmax, 4) },
+  { label: 'no NaN anywhere',
+    test: (s, r) => [r.W, r.H, r.Hmax, ...r.p, ...r.contrib].every(Number.isFinite),
+    show: (s, r) => 'H = ' + M.fmt(r.H, 4) }
 ];</script>
 <script>
 kit.boot(
