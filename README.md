@@ -55,3 +55,16 @@ QuickJS checks execute the actual generated computation, but are not Chromium DO
 ## Team and credits
 
 Team members: fill in before submission. Implementation assisted by Codex. QuickJS Python bindings (quickjs==1.19.4) provide the calculation sandbox; Python standard library provides HTTP, CLI and JSON. Generic HTML/CSS/SVG renderer authored for this project. No external visual assets or copied paper-specific implementations. Practice sources: Shannon, *A Mathematical Theory of Communication*, Section 6; Vaswani et al., *Attention Is All You Need*, Section 3.2.1. OpenRouter API format: https://openrouter.ai/docs/quickstart.
+
+## arXiv to Markdown (`arxiv_to_markdown.py`)
+
+Standalone, deterministic converter (no LLM) from an arXiv paper's HTML version to Markdown, for producing excerpts. Not yet wired into `agent.py`. Formulas are recovered exactly from LaTeXML `alttext`, figures become captions, merged-cell tables become regular Markdown tables.
+
+```python
+from arxiv_to_markdown import arxiv_to_markdown
+result = arxiv_to_markdown("1706.03762v7", write=False)   # fetches https://arxiv.org/html/<id>
+print(result.report.summary())
+markdown = result.markdown
+```
+
+CLI: `python arxiv_to_markdown.py 1706.03762v7 -o paper.md`. Needs `requests` and `beautifulsoup4` (in `requirements.txt`) and network access to arxiv.org.
