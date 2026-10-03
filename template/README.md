@@ -12,7 +12,7 @@ One generic page template. The model never writes HTML, CSS or animation code: i
 | `prompt_kit.md` | system prompt: 3b1b teaching rules + reply contract + kit API (~1.4k tokens) |
 | `fixtures/*.txt` | hand-written replies for the two public practice cases: the one-shot format example in the prompt and test data |
 | `assemble.py` | `parse_reply(text)` + `build_page(parts, case)` → single self-contained HTML (CSP blocks all network) |
-| `validate.py` | `validate(reply)` → structure checks; runs compute, tests and live checks; runs render against a mock kit (crashes, NaN/"undefined" in text, wrong scenes, empty scenes, bad bindings). QuickJS, Node fallback for local dev |
+| (moved) | the runtime checks that were `validate.py` now live in `validator/runtime.py`; the validator owns every check |
 | `prompting.py` | `system_prompt()` and `user_prompt(case)` |
 
 ## Pacing (one idea at a time)
@@ -23,16 +23,16 @@ Continue button), `scenes[i].gate: false` (show this scene together with the pre
 appears in the sidebar when that scene is revealed). Hidden content stays in the DOM, "Show everything" (top right) or `#all`
 in the URL opens every section, and "Try it" unlocks what it needs.
 
-## Pipeline integration (one generation call, validate, targeted repair only on failure)
+## Pipeline integration (one generation call, validator, targeted repair only on failure)
 
 ```python
 from template.prompting import system_prompt, user_prompt
 from template.assemble import parse_reply, build_page
-from template.validate import validate
+from validator import Validator
 
 reply = call_model([{"role": "system", "content": system_prompt()},
                     {"role": "user", "content": user_prompt(case)}])
-report = validate(reply)            # report["failures"] is a list of concrete messages to send back on repair
+report = Validator(case, case_path, client, trace).check(reply)   # report["failures"]: messages to send back on repair
 html = build_page(parse_reply(reply), case)
 ```
 
@@ -40,7 +40,7 @@ html = build_page(parse_reply(reply), case)
 
 ```bash
 python -m template.assemble template/fixtures/attention.txt out/attention.html --case examples/attention.json
-python -m template.validate template/fixtures/attention.txt
+python -m validator.runtime template/fixtures/attention.txt
 ```
 
 Open `out/attention.html` in Chromium. Things to try: press Continue to reveal each scene, drag the arrow tips or

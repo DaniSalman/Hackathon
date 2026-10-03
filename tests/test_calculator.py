@@ -1,0 +1,157 @@
+"""Calculator entries against a synthetic reply; no model involved."""
+import copy
+import shutil
+import sys
+import unittest
+from unittest.mock import patch
+from validator import calculator
+from validation_fixtures import CONTENT, CONTROLS, TESTS, calculations
+
+
+def run(entries, content=None, tests=None):
+    return calculator.run(entries, copy.deepcopy(CONTENT) if content is None else content, CONTROLS,
+                          copy.deepcopy(TESTS) if tests is None else tests)
+
+
+def entry(**changes):
+    base = {'id':'e','field':'explorations[0].observe','quote':'{y} = 12','value':12,'source':'Definition 1','formula':'a * x'}
+    base.update(changes)
+    return base
+
+
+class CalculatorTests(unittest.TestCase):
+    def test_correct_claims_pass_and_produce_no_issues(self):
+        out = run(calculations())
+        self.assertEqual([r['id'] for r in out['passed']], ['double','zero','third','test0','test1'])
+        self.assertEqual((out['failed'], out['discarded'], out['issues']), ([], [], []))
+
+    def test_wrong_text_number_becomes_generator_issue(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'With {x} = 3 the output becomes {y} = 13.'
+        out = run([entry(quote='{y} = 13', value=13)], content=content)
+        self.assertEqual(len(out['issues']), 1)
+        message = out['issues'][0]['message']
+        self.assertIn('explorations[0].observe', message)
+        self.assertIn('gives 12', message)
+        self.assertIn('a=4', message)  # the preset value, not the default
+
+    def test_preset_is_injected_from_the_reply(self):
+        out = run([entry()])
+        self.assertEqual(out['passed'][0]['computed'], 12)
+
+    def test_rounding_follows_written_precision(self):
+        content = copy.deepcopy(CONTENT)
+        for written, ok in (('0.667', True), ('0.67', True), ('0.7', True), ('0.66', False)):
+            with self.subTest(written=written):
+                content['scenes'][0]['caption'] = f'Dividing by 3 gives {{y}} ≈ {written} for {{a}} = 1.'
+                out = run([entry(field='scenes[0].caption', quote=f'{{y}} ≈ {written}', value=float(written),
+                                 formula='a * x / 3', inputs={'a':1,'x':2})], content=content)
+                self.assertEqual(bool(out['passed']), ok)
+
+    def test_written_tolerance(self):
+        self.assertEqual(calculator.written_tolerance('0.998'), 0.0005)
+        self.assertEqual(calculator.written_tolerance('580'), 5)
+        self.assertEqual(calculator.written_tolerance('9'), 0.5)
+        self.assertEqual(calculator.written_tolerance('−3.5'), 0.05)
+
+    def test_number_at_sentence_end_is_found(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'The output is 12.'
+        self.assertTrue(run([entry(quote='output is 12.', value=12)], content=content)['passed'])
+
+    def test_wrong_test_expectation_becomes_generator_issue(self):
+        tests = copy.deepcopy(TESTS); tests[1]['expect']['y'] = 4
+        out = run([entry(field='tests[1].expect.y', quote=None, value=None)], tests=tests)
+        self.assertEqual(len(out['issues']), 1)
+        self.assertIn('expects 4', out['issues'][0]['message'])
+        self.assertIn('compute()', out['issues'][0]['fix'])
+
+    def test_array_expectations_compare_elementwise(self):
+        tests = [{'state':{'a':2,'x':3},'expect':{'v':[6, 12]}}]
+        ok = run([entry(field='tests[0].expect.v', formula='[a * x, 2 * a * x]')], tests=tests)
+        self.assertEqual(len(ok['passed']), 1)
+        shape = run([entry(field='tests[0].expect.v', formula='a * x')], tests=tests)
+        self.assertEqual(shape['issues'], [])
+        self.assertIn('shapes', shape['discarded'][0]['reason'])
+
+    def test_reviewer_errors_are_discarded_not_blamed(self):
+        cases = {
+            'quote does not appear': entry(quote='{y} = 99'),
+            'not written in the quote': entry(value=11),
+            'does not exist': entry(field='explorations[5].observe'),
+            'unreadable field path': entry(field='explorations..observe'),
+            'formula failed': entry(formula='a *'),
+            'finite': entry(formula='a / 0'),
+            'contradict the preset': entry(inputs={'a':2}),
+            'needs id, field, source and formula': entry(source=''),
+        }
+        for reason, bad in cases.items():
+            with self.subTest(reason=reason):
+                out = run([bad])
+                self.assertEqual(out['issues'], [])
+                self.assertIn(reason, out['discarded'][0]['reason'])
+
+    def test_disagreeing_formula_without_page_state_is_discarded(self):
+        out = run([entry(formula='4 * 2.5')])          # re-typed and wrong: 10, not 12
+        self.assertEqual(out['issues'], [])
+        self.assertIn('uses none of the page state', out['discarded'][0]['reason'])
+        self.assertTrue(run([entry(formula='4 * 3')])['passed'])   # re-typed but agreeing: harmless
+
+    def test_kit_helper_names_work_and_controls_shadow_helpers(self):
+        controls = CONTROLS + [{'id':'scale','type':'toggle','label':'scale','value':False}]
+        out = calculator.run([entry(formula='scale ? 0 : M.scale([a], x)[0]'),
+                              entry(id='h', formula='sum(M.outer([a], [x])[0]) + colSums([[0],[0]])[0] + argmax([0, a * x])*0')],
+                             copy.deepcopy(CONTENT), controls, copy.deepcopy(TESTS))
+        self.assertEqual([r['id'] for r in out['passed']], ['e', 'h'], out['discarded'])
+
+    def test_runaway_formula_is_stopped(self):
+        out = run([entry(formula='(() => { while (true) {} })()')])
+        self.assertEqual(out['issues'], [])
+        self.assertEqual(len(out['discarded']), 1)
+
+    def test_entry_limit(self):
+        out = run([entry()] * (calculator.MAX_ENTRIES + 2))
+        self.assertEqual(len(out['passed']), calculator.MAX_ENTRIES)
+        self.assertEqual(len(out['discarded']), 2)
+
+    def test_recheck_accepts_corrected_text_without_the_old_quote(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'With {x} = 3 the output is now {y} = 12.0 exactly.'
+        stale = entry(quote='{y} = 13', value=13)   # written by the review of the earlier, wrong reply
+        self.assertEqual(run([stale], content=content)['issues'], [])   # normal mode: unusable entry
+        out = calculator.run([stale], content, CONTROLS, TESTS, recheck=True)
+        self.assertEqual((len(out['passed']), out['issues']), (1, []))
+
+    def test_recheck_still_catches_a_wrong_number(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'With {x} = 3 the output is now {y} = 14.'
+        out = calculator.run([entry(quote='{y} = 13', value=13)], content, CONTROLS, TESTS, recheck=True)
+        self.assertIn('closest number is 14', out['issues'][0]['message'])
+
+    def test_recheck_discards_a_removed_claim(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'The output grows with the gain.'
+        out = calculator.run([entry(quote='{y} = 13', value=13)], content, CONTROLS, TESTS, recheck=True)
+        self.assertEqual(out['issues'], [])
+        self.assertIn('removed', out['discarded'][0]['reason'])
+
+    @unittest.skipUnless(shutil.which('node'), 'node not installed')
+    def test_node_fallback_gives_the_same_verdicts(self):
+        with patch.dict(sys.modules, {'quickjs': None}):   # as on a Python without the quickjs wheel
+            out = run(calculations())
+            self.assertEqual([r['id'] for r in out['passed']], ['double','zero','third','test0','test1'])
+            self.assertEqual(len(run([entry(formula='(() => { while (true) {} })()')])['discarded']), 1)
+
+    def test_no_engine_discards_instead_of_blaming(self):
+        with patch.dict(sys.modules, {'quickjs': None}), patch('shutil.which', return_value=None):
+            out = run([entry()])
+        self.assertEqual(out['issues'], [])
+        self.assertIn('no JavaScript engine', out['discarded'][0]['reason'])
+
+    def test_non_list_is_discarded(self):
+        out = calculator.run({'not':'a list'}, CONTENT, CONTROLS, TESTS)
+        self.assertEqual((out['issues'], len(out['discarded'])), ([], 1))
+
+
+if __name__ == '__main__':
+    unittest.main()
