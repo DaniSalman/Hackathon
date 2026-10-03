@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Paper to Playground: one generation call -> deterministic checks -> targeted repair -> fixed template.
+"""Paper to Playground: one generation call -> validator -> targeted repair -> fixed template.
 
     python agent.py --input case.json --output out --model deepseek/deepseek-v4.1-flash
 
-The model returns tagged blocks (content, controls, compute, render, checks, tests). Python validates
-them without any model (structure, QuickJS execution of compute/render/tests), asks the same model to
-fix only the failing blocks when needed, and pastes the result into the pre-written template in
-template/. Outputs: out/index.html (single offline file), out/trace.jsonl, out/reply.txt.
+The model returns tagged blocks (content, controls, compute, render, checks, tests). The validator
+(validator/) does every check: runtime checks without a model (structure, QuickJS execution of
+compute/render/tests), then a review against the paper named by case.json's paper_md with calculator
+checks of every numeric claim. The same model fixes only the failing blocks when needed, and the result
+is pasted into the pre-written template in template/. Outputs: out/index.html (single offline file),
+out/trace.jsonl, out/reply.txt.
 """
 from __future__ import annotations
 
@@ -22,18 +24,24 @@ from pathlib import Path
 
 from template.assemble import build_page, parse_reply
 from template.prompting import system_prompt, user_prompt
-from template.validate import validate
+from validator import Validator
 
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 START = time.monotonic()
 MAX_SECONDS = 560            # hard limit is 600 s per case; keep a margin to write the page
-MAX_CALLS = 6                # hard limit is 10 requests per case, retries included
+MAX_CALLS = 8                # hard limit is 10 requests per case, retries included (generate, re-ask, 2 repairs, 2 reviews, 2 retries)
 MAX_COMPLETION = 29000       # hard limit is 30,000 completion tokens per case
 GEN_TOKENS = 14000           # cap for the generation call (reasoning tokens count inside this)
 FIX_TOKENS = 7000            # cap for each repair call
+REGEN_TOKENS = 10000         # cap for re-asking the whole reply, with reasoning off
 MAX_REPAIRS = 2
 EXCERPT_CHARS = 24000        # the excerpt is meant to be focused; cap prompt tokens
-REASONING = os.environ.get("P2P_REASONING", "off")   # off | low | medium | high (off measured best: see README)
+# off | minimal | low | medium | high. Measured live on deepseek-v4.1-flash, attention case: "low" spent 9.8k and
+# "minimal" 12.6k and 12.5k of a 14k cap reasoning, each time with no usable reply; with reasoning off the same prompt
+# returned a complete reply in 12 s (4.7k tokens) and the validator caught its mistakes. The entropy case worked at
+# "minimal" (2.8k reasoning). Override with P2P_REASONING.
+REASONING = os.environ.get("P2P_REASONING", "off")
+PROVIDER_SORT = os.environ.get("P2P_PROVIDER_SORT", "throughput")   # OpenRouter provider routing; "" = default
 EXCERPT_KEYS = ("excerpt", "source_excerpt", "paper_excerpt", "source_text", "text", "section_text")
 
 
@@ -71,8 +79,12 @@ class Client:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.load(response)
 
-    def chat(self, stage: str, messages: list[dict], cap: int) -> tuple[str, str]:
-        """Return (content, finish_reason). Retries once on transport errors, within the budgets."""
+    def chat(self, stage: str, messages: list[dict], cap: int, reasoning: str | None = None,
+             json_mode: bool = False) -> tuple[str, str]:
+        """Return (content, finish_reason). Retries once on transport errors, within the budgets.
+
+        reasoning overrides REASONING for this call; json_mode asks for a single JSON object (the review)."""
+        reasoning = reasoning or REASONING
         for attempt in (1, 2):
             remaining = MAX_SECONDS - elapsed()
             if self.calls >= MAX_CALLS or remaining < 25 or self.reserved + cap > MAX_COMPLETION:
@@ -80,10 +92,14 @@ class Client:
             self.calls += 1
             self.reserved += cap  # reserve the cap until real usage is known
             payload = {"model": self.model, "max_tokens": cap, "messages": messages, "usage": {"include": True}}
-            if REASONING != "default":
-                payload["reasoning"] = {"enabled": False} if REASONING == "off" else {"effort": REASONING, "exclude": True}
+            if reasoning != "default":
+                payload["reasoning"] = {"enabled": False} if reasoning == "off" else {"effort": reasoning, "exclude": True}
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
+            if PROVIDER_SORT:   # the same model is served by fast and very slow providers (34 s vs 217 s for one call)
+                payload["provider"] = {"sort": PROVIDER_SORT}
             self.trace.log(stage, "model_call", "started", call=self.calls, attempt=attempt, max_tokens=cap, model=self.model,
-                           reasoning=REASONING, prompt_characters=sum(len(m["content"]) for m in messages))
+                           reasoning=reasoning, prompt_characters=sum(len(m["content"]) for m in messages))
             t0 = time.monotonic()
             try:
                 data = self._post(json.dumps(payload).encode(), timeout=max(10.0, min(300.0, remaining - 15)))
@@ -139,9 +155,11 @@ def blocking(report: dict) -> list[str]:
 
 
 def score(report: dict) -> int:
-    """Lower is better: hard failures (missing blocks, crashes, bad JSON) dominate, then blocking ones."""
+    """Lower is better: hard failures (missing blocks, crashes, bad JSON) dominate, then failing to run at all,
+    then blocking ones."""
     hard = sum(1 for f in report["failures"] if any(s in f for s in ("missing <", "invalid JSON", "could not run", "compute threw", "render threw")))
-    return hard * 1000 + len(blocking(report)) * 10 + len(report["failures"])
+    runs = report.get("stage") in ("review", "recheck") or not blocking(report)   # passed the validator's runtime stage
+    return hard * 1000 + (0 if runs else 500) + len(blocking(report)) * 10 + len(report["failures"])
 
 
 def as_reply(parts: dict) -> str:
@@ -175,35 +193,44 @@ def main() -> int:
         signal.signal(signal.SIGALRM, _deadline)
         signal.alarm(MAX_SECONDS + 15)
 
-    case, client, best, best_report, revisions = None, None, None, None, 0
+    case, client, best, best_report, revisions, regenerated = None, None, None, None, 0, False
     try:
         case = load_case(args.input, trace)
         client = Client(args.model, trace)
+        validator = Validator(case, args.input, client, trace, budget=lambda: {
+            "tokens": MAX_COMPLETION - client.reserved, "seconds": MAX_SECONDS - elapsed(), "calls": MAX_CALLS - client.calls})
+        case = {k: v for k, v in case.items() if k != "paper_md"}   # the generator never sees the paper path
         reply, finish = client.chat("generate", [{"role": "system", "content": system_prompt()},
                                                  {"role": "user", "content": user_prompt(case)}], GEN_TOKENS)
         parts = parse_reply(reply)
         trace.log("generate", "parse_reply", "passed" if parts else "failed", blocks=sorted(parts), truncated=finish == "length")
         while True:
-            report = validate(as_reply(parts))
+            report = validator.check(as_reply(parts))
             must_fix = blocking(report)
             trace.log("check", "validate", "passed" if report["ok"] else "warnings" if not must_fix else "failed", revision=revisions,
-                      checks_passed=report["passed"], failures=must_fix, warnings=report.get("minor", []))
+                      validator_stage=report["stage"], complete=report["complete"], checks_passed=report["passed"],
+                      failures=must_fix, warnings=report.get("minor", []), validator_errors=report["validator_errors"])
             if best_report is None or score(report) < score(best_report):
                 best, best_report = dict(parts), report
-            if not must_fix or revisions >= MAX_REPAIRS:
+            usable = all(k in best for k in ("content", "controls", "compute"))
+            if not must_fix or (usable and revisions >= MAX_REPAIRS) or (not usable and regenerated):
                 break
             if MAX_SECONDS - elapsed() < 120 or MAX_COMPLETION - client.reserved < 3000 or client.calls >= MAX_CALLS:
                 trace.log("revise", "repair", "skipped", reason="not enough time or budget left for another call")
                 break
-            revisions += 1
-            if all(k in best for k in ("content", "compute", "render")):
+            if usable:
+                # includes a reply cut off at the token cap: ask only for the missing blocks, not a new generation
+                revisions += 1
                 messages, cap = repair_messages(case, best, best_report["failures"]), FIX_TOKENS
-            else:  # nothing usable came back: ask again for the whole reply
+            else:  # nothing usable came back: ask once more for the whole reply; this does not use up a repair
+                regenerated = True
                 messages = [{"role": "system", "content": system_prompt()},
                             {"role": "user", "content": user_prompt(case) + "\n\nYour previous reply could not be parsed. "
                              "Reply again with all six tagged blocks."}]
-                cap = GEN_TOKENS
-            fix, finish = client.chat("revise", messages, min(cap, MAX_COMPLETION - client.reserved))
+                cap = REGEN_TOKENS
+            # A whole-reply re-ask runs without reasoning, so reasoning cannot swallow it again (seen live at "minimal").
+            fix, finish = client.chat("revise", messages, min(cap, MAX_COMPLETION - client.reserved),
+                                      reasoning=None if usable else "off")
             new = parse_reply(fix)
             trace.log("revise", "merge_blocks", "passed" if new else "failed", revision=revisions, replaced_blocks=sorted(new),
                       truncated=finish == "length")
@@ -221,7 +248,7 @@ def main() -> int:
         (args.output / "reply.txt").write_text(as_reply(best), encoding="utf-8")
         trace.log("output", "write_page", "passed", file="index.html", bytes=len(page.encode("utf-8")),
                   remaining_failures=blocking(best_report), remaining_warnings=best_report.get("minor", []))
-    status = "success" if usable and not blocking(best_report) else "partial" if usable else "failed"
+    status = "success" if usable and not blocking(best_report) and best_report["complete"] else "partial" if usable else "failed"
     trace.log("finish", "summary", status, calls=client.calls if client else 0, revisions=revisions,
               prompt_tokens=client.prompt_tokens if client else 0, completion_tokens=client.completion_tokens if client else 0,
               total_tokens=(client.prompt_tokens + client.completion_tokens) if client else 0, total_seconds=round(elapsed(), 2))

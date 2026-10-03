@@ -1,7 +1,10 @@
 """Calculator entries against a synthetic reply; no model involved."""
 import copy
+import shutil
+import sys
 import unittest
-import calculator
+from unittest.mock import patch
+from validator import calculator
 from validation_fixtures import CONTENT, CONTROLS, TESTS, calculations
 
 
@@ -88,6 +91,19 @@ class CalculatorTests(unittest.TestCase):
                 self.assertEqual(out['issues'], [])
                 self.assertIn(reason, out['discarded'][0]['reason'])
 
+    def test_disagreeing_formula_without_page_state_is_discarded(self):
+        out = run([entry(formula='4 * 2.5')])          # re-typed and wrong: 10, not 12
+        self.assertEqual(out['issues'], [])
+        self.assertIn('uses none of the page state', out['discarded'][0]['reason'])
+        self.assertTrue(run([entry(formula='4 * 3')])['passed'])   # re-typed but agreeing: harmless
+
+    def test_kit_helper_names_work_and_controls_shadow_helpers(self):
+        controls = CONTROLS + [{'id':'scale','type':'toggle','label':'scale','value':False}]
+        out = calculator.run([entry(formula='scale ? 0 : M.scale([a], x)[0]'),
+                              entry(id='h', formula='sum(M.outer([a], [x])[0]) + colSums([[0],[0]])[0] + argmax([0, a * x])*0')],
+                             copy.deepcopy(CONTENT), controls, copy.deepcopy(TESTS))
+        self.assertEqual([r['id'] for r in out['passed']], ['e', 'h'], out['discarded'])
+
     def test_runaway_formula_is_stopped(self):
         out = run([entry(formula='(() => { while (true) {} })()')])
         self.assertEqual(out['issues'], [])
@@ -97,6 +113,40 @@ class CalculatorTests(unittest.TestCase):
         out = run([entry()] * (calculator.MAX_ENTRIES + 2))
         self.assertEqual(len(out['passed']), calculator.MAX_ENTRIES)
         self.assertEqual(len(out['discarded']), 2)
+
+    def test_recheck_accepts_corrected_text_without_the_old_quote(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'With {x} = 3 the output is now {y} = 12.0 exactly.'
+        stale = entry(quote='{y} = 13', value=13)   # written by the review of the earlier, wrong reply
+        self.assertEqual(run([stale], content=content)['issues'], [])   # normal mode: unusable entry
+        out = calculator.run([stale], content, CONTROLS, TESTS, recheck=True)
+        self.assertEqual((len(out['passed']), out['issues']), (1, []))
+
+    def test_recheck_still_catches_a_wrong_number(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'With {x} = 3 the output is now {y} = 14.'
+        out = calculator.run([entry(quote='{y} = 13', value=13)], content, CONTROLS, TESTS, recheck=True)
+        self.assertIn('closest number is 14', out['issues'][0]['message'])
+
+    def test_recheck_discards_a_removed_claim(self):
+        content = copy.deepcopy(CONTENT)
+        content['explorations'][0]['observe'] = 'The output grows with the gain.'
+        out = calculator.run([entry(quote='{y} = 13', value=13)], content, CONTROLS, TESTS, recheck=True)
+        self.assertEqual(out['issues'], [])
+        self.assertIn('removed', out['discarded'][0]['reason'])
+
+    @unittest.skipUnless(shutil.which('node'), 'node not installed')
+    def test_node_fallback_gives_the_same_verdicts(self):
+        with patch.dict(sys.modules, {'quickjs': None}):   # as on a Python without the quickjs wheel
+            out = run(calculations())
+            self.assertEqual([r['id'] for r in out['passed']], ['double','zero','third','test0','test1'])
+            self.assertEqual(len(run([entry(formula='(() => { while (true) {} })()')])['discarded']), 1)
+
+    def test_no_engine_discards_instead_of_blaming(self):
+        with patch.dict(sys.modules, {'quickjs': None}), patch('shutil.which', return_value=None):
+            out = run([entry()])
+        self.assertEqual(out['issues'], [])
+        self.assertIn('no JavaScript engine', out['discarded'][0]['reason'])
 
     def test_non_list_is_discarded(self):
         out = calculator.run({'not':'a list'}, CONTENT, CONTROLS, TESTS)

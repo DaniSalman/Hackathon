@@ -1,10 +1,10 @@
 """Synthetic test data in the generator's tagged reply format; not a built-in answer or assessment output."""
 import copy
 import json
-from validator import REVIEW_CHECKS, education_requirements
+from validator.review import CHECKS, education_requirements
 
 CASE = {'source_url':'https://example.org/paper','excerpt':'Synthetic definition: y equals a times x.',
-        'focus':'Linear scaling','audience':'Undergraduate'}
+        'focus':'Linear scaling','audience':'Undergraduate','paper_md':'paper.md'}
 PAPER = '# Synthetic paper\n\n## Definition 1\nThe output is y = a x for gain a and input x.\n'
 
 CONTENT = {
@@ -15,9 +15,9 @@ CONTENT = {
     'scenes':[{'id':'s1','title':'Multiply','caption':'The output {y} is {a} times {x}. Dividing by 3 instead gives {y} ≈ 0.667 for {a} = 1, {x} = 2.'}],
     'equation':'{y} = {a}{x}', 'equation_words':'Multiply the gain by the input.',
     'explorations':[
-        {'title':'Double the gain','focus':'s1','change':'Set {a} to 4.','preset':{'a':4},
+        {'title':'Double the gain','focus':'s1','predict':'What does doubling {a} do to {y}?','change':'Set {a} to 4.','preset':{'a':4},
          'observe':'With {x} = 3 the output becomes {y} = 12.','why':'The output is proportional to the gain.'},
-        {'title':'Zero input','focus':'s1','change':'Set {x} to 0.','preset':{'x':0},
+        {'title':'Zero input','focus':'s1','predict':'What is {y} when {x} is 0?','change':'Set {x} to 0.','preset':{'x':0},
          'observe':'{y} drops to 0 whatever {a} is.','why':'Anything times zero is zero.'}],
     'takeaway':'Output is proportional to both gain and input.',
     'misconception':'A larger gain does not add a constant; it multiplies.',
@@ -52,7 +52,7 @@ def review_fixture():
     return {
         'summary':'Synthetic review fixture passes.',
         'education':[{'heading':h,'status':'pass','evidence':'Synthetic teaching evidence for '+h} for h in education_requirements()[1]],
-        'checks':[{'name':name,'status':'pass','evidence':'Synthetic fixture evidence for '+name} for name in REVIEW_CHECKS],
+        'checks':[{'name':name,'status':'pass','evidence':'Synthetic fixture evidence for '+name} for name in CHECKS],
         'issues':[],
         'calculations':calculations(),
     }

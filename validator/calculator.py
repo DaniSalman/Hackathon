@@ -16,7 +16,8 @@ shared by the page and the reference cannot hide a wrong number.
 import json
 import math
 import re
-import quickjs
+import shutil
+import subprocess
 
 MAX_ENTRIES = 30
 TEST_TOLERANCE = 1e-6
@@ -33,20 +34,34 @@ var dot=(a,b)=>{if(a.length!==b.length)throw Error('dot: length mismatch');retur
 var transpose=A=>A[0].map((_,j)=>A.map(r=>r[j]));
 var matmul=(A,B)=>A.map(r=>B[0].map((_,j)=>dot(r,B.map(b=>b[j]))));
 var matvec=(A,x)=>A.map(r=>dot(r,x));
-var softmax=v=>{var m=max(v),e=v.map(x=>Math.exp(x-m)),s=sum(e);return e.map(x=>x/s)};
-var softmaxRows=A=>A.map(softmax);
-var rowSums=A=>A.map(sum), norm=v=>Math.sqrt(dot(v,v));
-var log2=Math.log2, ln=Math.log, exp=Math.exp, sqrt=Math.sqrt, abs=Math.abs, pow=Math.pow;
+var softmax=(v,T)=>{T=T||1;var u=v.map(x=>x/T),m=max(u),e=u.map(x=>Math.exp(x-m)),s=sum(e);return e.map(x=>x/s)};
+var softmaxRows=(A,T)=>A.map(r=>softmax(r,T));
+var rowSums=A=>A.map(sum), colSums=A=>transpose(A).map(sum), norm=v=>Math.sqrt(dot(v,v));
+var log2=Math.log2, ln=Math.log, log=Math.log, exp=Math.exp, sqrt=Math.sqrt, abs=Math.abs, pow=Math.pow;
 var xlog2x=p=>p>0?p*Math.log2(p):0, xlnx=p=>p>0?p*Math.log(p):0;
 var range=n=>Array.from({length:n},(_,i)=>i), zeros=n=>range(n).map(()=>0);
+var argmax=a=>a.indexOf(max(a)), argmin=a=>a.indexOf(min(a));
+var linspace=(a,b,n)=>n<2?[a]:range(n).map(i=>a+(b-a)*i/(n-1));
+var map2=(A,f)=>A.map((r,i)=>r.map((v,j)=>f(v,i,j)));
+var scale=(A,k)=>Array.isArray(A[0])?map2(A,v=>v*k):A.map(v=>v*k);
+var add=(A,B)=>Array.isArray(A[0])?map2(A,(v,i,j)=>v+B[i][j]):A.map((v,i)=>v+B[i]);
+var sub=(A,B)=>Array.isArray(A[0])?map2(A,(v,i,j)=>v-B[i][j]):A.map((v,i)=>v-B[i]);
+var outer=(a,b)=>a.map(x=>b.map(y=>x*y)), cumsum=a=>{var t=0;return a.map(v=>t+=v)};
+var cosine=(a,b)=>{var d=norm(a)*norm(b);return d?dot(a,b)/d:0}, clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+var round=(x,d)=>{var k=Math.pow(10,d||0);return Math.round(x*k)/k};
+var normalize=v=>{var t=sum(v);return t>0?v.map(x=>x/t):v.map(()=>1/v.length)};
+var sigmoid=x=>1/(1+Math.exp(-x)), relu=x=>Math.max(0,x);
+var M={sum,mean,max,min,dot,transpose,matmul,matvec,softmax,softmaxRows,rowSums,colSums,norm,xlog2x,xlnx,range,zeros,
+       argmax,argmin,linspace,map2,scale,add,sub,outer,cumsum,cosine,clamp,round,normalize,sigmoid,relu};
 '''
-HELPER_NAMES = {'sum','mean','max','min','dot','transpose','matmul','matvec','softmax','softmaxRows',
-                'rowSums','norm','log2','ln','exp','sqrt','abs','pow','xlog2x','xlnx','range','zeros','s','Math'}
+PROTECTED = {'s', 'Math', 'M'}   # control ids shadow helpers of the same name (e.g. a "scale" toggle); M.* stays reachable
 RESERVED = {'break','case','catch','class','const','continue','debugger','default','delete','do','else','export',
             'extends','false','finally','for','function','if','import','in','instanceof','let','new','null','return',
             'super','switch','this','throw','true','try','typeof','var','void','while','with','yield','await'}
-HELP_TEXT = ('sum mean max min dot transpose matmul matvec softmax softmaxRows rowSums norm '
-             'log2 ln exp sqrt abs pow xlog2x xlnx (0·log 0 = 0) range zeros, plus Math.*')
+HELP_TEXT = ('sum mean max min argmax argmin dot transpose matmul matvec softmax(v,T) softmaxRows rowSums colSums '
+             'norm cosine scale add sub outer map2 cumsum linspace clamp round normalize sigmoid relu log2 ln exp '
+             'sqrt abs pow xlog2x xlnx (0·log 0 = 0) range zeros, also as M.<name>, plus Math.*; '
+             'a control id shadows a helper of the same name (use M.scale when a control is named scale)')
 
 
 class EntryError(ValueError):
@@ -54,6 +69,7 @@ class EntryError(ValueError):
 
 
 def resolve(path, content, controls, tests):
+    path = path[len('content.'):] if path.startswith('content.') else path   # live reviewers sometimes prefix the block
     tokens = [(name, int(index) if index else None) for name, index in PATH_TOKEN.findall(path)]
     if not tokens or ''.join(f'.{n}' if n else f'[{i}]' for n, i in tokens).lstrip('.') != path:
         raise EntryError(f'unreadable field path {path!r}')
@@ -97,16 +113,37 @@ def page_state(path, content, controls, tests):
     return state
 
 
-def evaluate(formula, state):
-    names = [k for k in state if IDENTIFIER.match(k) and k not in HELPER_NAMES and k not in RESERVED]
-    script = (HELPERS + 'var s=JSON.parse(' + json.dumps(json.dumps(state, allow_nan=False)) + ');\n' +
-              ''.join(f'var {k}=s[{json.dumps(k)}];' for k in names) +
-              '\nJSON.stringify((function(){return (\n' + formula + '\n);})());')
+def run_js(script):
+    """QuickJS (pinned, used by the grader on Python 3.11); Node only as a local-development fallback."""
+    try:
+        import quickjs
+    except ImportError:
+        node = shutil.which('node')
+        if not node:
+            raise EntryError('no JavaScript engine (install quickjs, or node for local development)') from None
+        try:
+            proc = subprocess.run([node, '-e', 'process.stdout.write(String(eval(require("fs").readFileSync(0, "utf8"))))'],
+                                  input=script, capture_output=True, text=True, timeout=2)
+        except subprocess.TimeoutExpired:
+            raise EntryError('formula failed: timed out') from None
+        if proc.returncode:
+            raise EntryError('formula failed: ' + (proc.stderr.strip().splitlines() or ['node error'])[-1])
+        return proc.stdout if proc.stdout != 'undefined' else None
     context = quickjs.Context()
     context.set_memory_limit(16 * 1024 * 1024)
     context.set_time_limit(0.3)
+    return context.eval(script)
+
+
+def evaluate(formula, state):
+    names = [k for k in state if IDENTIFIER.match(k) and k not in PROTECTED and k not in RESERVED]
+    script = (HELPERS + 'var s=JSON.parse(' + json.dumps(json.dumps(state, allow_nan=False)) + ');\n' +
+              ''.join(f'var {k}=s[{json.dumps(k)}];' for k in names) +
+              '\nJSON.stringify((function(){return (\n' + formula + '\n);})());')
     try:
-        raw = context.eval(script)
+        raw = run_js(script)
+    except EntryError:
+        raise
     except Exception as exc:
         raise EntryError('formula failed: ' + (str(exc).splitlines()[0] if str(exc) else type(exc).__name__)) from None
     result = json.loads(raw) if isinstance(raw, str) else None
@@ -142,18 +179,34 @@ def written_tolerance(literal):
     return 0.5 * 10 ** zeros
 
 
+def plain(text):
+    """Text as the learner reads it: no {sym} braces or **bold** markers, one kind of minus, single spaces."""
+    return ' '.join(re.sub(r'[{}]|\*\*', '', text).replace('−', '-').split()).lower()
+
+
 def text_claim(entry, field_text):
     quote, value = entry.get('quote'), entry.get('value')
     if not isinstance(field_text, str):
         raise EntryError('a text claim must point at a text field')
     if not isinstance(quote, str) or not quote.strip() or not finite(value) or isinstance(value, list):
         raise EntryError('a text claim needs quote and a numeric value')
-    if ' '.join(quote.split()) not in ' '.join(field_text.split()):
+    if plain(quote) not in plain(field_text):
         raise EntryError('quote does not appear in the field')
     literals = [m.group(0) for m in NUMBER.finditer(quote) if float(m.group(0).replace('−', '-')) == value]
     if not literals:
         raise EntryError(f'value {value} is not written in the quote')
     return value, written_tolerance(literals[0])
+
+
+def restated(field_text, computed):
+    """Recheck after a repair changed the text: the written number closest to the paper's value."""
+    if isinstance(computed, list):
+        raise EntryError('formula result and claim have different shapes')
+    literals = [m.group(0) for m in NUMBER.finditer(field_text)]
+    if not literals:
+        raise EntryError('the claim was removed from the field')
+    best = min(literals, key=lambda lit: abs(float(lit.replace('−', '-')) - computed))
+    return float(best.replace('−', '-')), written_tolerance(best)
 
 
 def fmt(value):
@@ -162,8 +215,11 @@ def fmt(value):
     return f'{value:.6g}'
 
 
-def run(entries, content, controls, tests):
-    """Evaluate reviewer entries against the reply. Returns {'passed','failed','discarded','issues'}."""
+def run(entries, content, controls, tests, recheck=False):
+    """Evaluate reviewer entries against the reply. Returns {'passed','failed','discarded','issues'}.
+
+    recheck=True reuses entries from an earlier review on a repaired reply, with no model call:
+    when the quoted text is gone, the field passes if it now states the paper's value."""
     out = {'passed': [], 'failed': [], 'discarded': [], 'issues': []}
     if not isinstance(entries, list):
         out['discarded'].append({'id': None, 'field': None, 'reason': 'calculations must be a list'})
@@ -194,23 +250,37 @@ def run(entries, content, controls, tests):
                 if not finite(tolerance) or isinstance(tolerance, list) or tolerance <= 0:
                     tolerance = TEST_TOLERANCE
             else:
-                claimed, tolerance = text_claim(entry, target)
-                relative = False
+                relative, quoted = False, True
+                try:
+                    claimed, tolerance = text_claim(entry, target)
+                except EntryError as exc:
+                    if not (recheck and isinstance(target, str) and 'quote does not appear' in str(exc)):
+                        raise
+                    quoted = False
             computed = evaluate(entry['formula'], state)
+            if not relative and not quoted:
+                claimed, tolerance = restated(target, computed)
             if not same_shape(computed, claimed):
                 raise EntryError('formula result and claim have different shapes')
             ok = close(computed, claimed, tolerance) if relative else abs(computed - claimed) <= tolerance + 1e-12 * max(1.0, abs(claimed))
+            used = {k: state[k] for k in state if re.search(r'(?<![\w$.])' + re.escape(k) + r'(?![\w$])', entry['formula'])}
+            if not ok and not used:
+                # Live reviewers re-type preset numbers and slip (9/2 for 9/sqrt(2)); only a formula that reads
+                # the page's own state may blame the generator.
+                raise EntryError('formula disagrees but uses none of the page state; a re-typed input cannot blame the generator')
         except EntryError as exc:
-            out['discarded'].append({'id': ident, 'field': field, 'reason': str(exc)})
+            out['discarded'].append({'id': ident, 'field': field, 'reason': str(exc),
+                                     'quote': entry.get('quote') if isinstance(entry, dict) else None,
+                                     'formula': entry.get('formula') if isinstance(entry, dict) else None})
             continue
         record = {'id': ident, 'field': field, 'source': entry['source'], 'claimed': claimed, 'computed': computed}
         if ok:
             out['passed'].append(record)
             continue
-        used = {k: state[k] for k in state if re.search(r'(?<![\w$.])' + re.escape(k) + r'(?![\w$])', entry['formula'])}
         record.update(formula=entry['formula'], inputs=used, overrides=overrides)
         out['failed'].append(record)
-        where = f'{field}: says "{entry["quote"]}"' if 'quote' in entry and not relative else f'{field}: expects {fmt(claimed)}'
+        where = (f'{field}: expects {fmt(claimed)}' if relative else f'{field}: says "{entry["quote"]}"' if quoted
+                 else f'{field}: its closest number is {fmt(claimed)}')
         detail = ', '.join(f'{k}={json.dumps(v)}' for k, v in used.items())
         changed = (' (the reviewer changed ' + ', '.join(overrides) + ' from the page defaults)') if overrides else ''
         out['issues'].append({'origin': 'calculator', 'category': 'math_check',
