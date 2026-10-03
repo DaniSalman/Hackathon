@@ -5,7 +5,7 @@ You turn a research-paper excerpt and a learning brief into an interactive expla
 2. Concrete before abstract: defaults are tiny real numbers; scene 1 shows them; the general equation comes after.
 3. One colour per symbol, everywhere: write {sym} in captions, titles, labels and the equation.
 4. Show every intermediate quantity from input to result (matrix, steps, formula). Never jump to the answer.
-5. Make the main object directly manipulable: bind bars, matrices, plane arrows or plot markers to controls.
+5. Make the main object directly manipulable: bind bars, matrices, plane arrows or plot markers to controls. Use small but non-trivial sizes (2-3 rows, 3 items) so patterns are visible; draw 2-D vectors as arrows with kit.plane.
 6. Every requirement in the brief maps to a control, a visual, an exploration or a check.
 7. Explorations: predict, then a preset that produces the effect, then what the learner observes (quote the numbers the page will show), then why.
 8. Short sentences and plain words for the audience. Define every symbol. No hype.
@@ -41,6 +41,6 @@ render(s, r, kit): draw into scenes with '#<sceneId>'. Each call adds one panel;
  Linking: use the same axis name for things indexed the same way (bars {axis:'key'}, matrix {axes:['query','key']}); hovering one highlights the others. kit.fmt(v,d) formats numbers.
 
 checks: const checks = [{label, test:(s,r)=>bool, show:(s,r)=>string}]; live invariants shown with ✓ (sums to 1, bounds, identities).
-tests: [{state:{every control id}, expect:{resultKey: number|array}, tol?}]; boundary cases with values derived by hand. They are run before the page ships.
+tests: [{state:{every control id}, expect:{resultKey: number|array}, tol?}]; 3-5 states whose answers are exact by hand (zeros, ties, certainty, uniform, symmetry), with every toggle set explicitly. They run before the page ships.
 
 # Example reply (format and depth only; pick visuals that fit YOUR mechanism)

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
-<title>Entropy in bits: how much do you learn by watching?</title>
+<title>Scaled dot-product attention: how a query picks which values to carry forward</title>
 <style>/* style.css — 3Blue1Brown-inspired theme for Paper -> Playground pages.
    Dark stage, Manim-like palette, serif math, calm motion. Generic: no paper-specific rules. */
 :root {
@@ -2069,122 +2069,87 @@ var M = (function () {
   window.P2P = { state: state, setControl: setControl, errors: function () { return ERRORS.slice(); }, result: function () { return result; } };
 })();
 </script>
-<script id="p2p-data" type="application/json">{"title": "Entropy in bits: how much do you learn by watching?", "hook": "Two weather services each send you one word every morning. One always says \"sunny\". The other says \"sun\", \"cloud\", \"rain\", or \"snow\" with equal odds. Which message actually carries information — and can one number say how much?", "why": "Shannon wanted a single number for how much choice a source of messages has. For a discrete distribution {p_i} over {n} outcomes, that number is {H}, measured in bits. It is 0 when you already know the answer, and biggest when all outcomes are equally likely.", "symbols": [{"key": "p_i", "meaning": "probability of outcome i (the bars below, after normalising the weights)", "color": "blue"}, {"key": "w_i", "meaning": "the raw nonnegative weight you type for outcome i", "color": "purple"}, {"key": "n", "meaning": "number of active outcomes", "color": "green"}, {"key": "c_i", "meaning": "contribution of outcome i: −{p_i} log₂ {p_i}, in bits", "color": "teal"}, {"key": "H", "meaning": "entropy: the total, Σ {c_i}, in bits", "color": "yellow"}], "scenes": [{"id": "s1", "title": "Weights in, probabilities out", "caption": "Type any nonnegative numbers as weights {w_i}. The page divides by their sum to get {p_i}, so the probabilities always add to 1. Set a weight to 0 and that outcome is off: it appears in the list, but it contributes nothing.", "pause": "If one outcome is certain, how many bits should this whole thing give you?"}, {"id": "s2", "title": "Each outcome's share of the surprise", "caption": "Outcome i contributes {c_i} = −{p_i} log₂ {p_i} bits. Rare outcomes are surprising but seldom happen; likely outcomes happen often but surprise nobody — so {c_i} is small at both ends and largest near {p_i} ≈ 0.37. A term with {p_i} = 0 or {p_i} = 1 contributes exactly 0, because p log₂ p tends to 0 at both ends.", "pause": "Add up the four shares of the fair weather service. What total do you expect?"}, {"id": "s3", "title": "Add the shares: {H}", "caption": "{H} is just the sum of the {c_i}. It hits 0 bits when one outcome is certain, and its ceiling for {n} outcomes is log₂ {n} bits, reached only when all {p_i} = 1/{n}.", "pause": "Which distribution makes {H} as large as the ceiling allows?"}, {"id": "s4", "title": "Where the ceiling sits", "caption": "Move {H} around and watch the gauge. The ceiling log₂ {n} moves too when you change {n}: adding an outcome you can actually see raises the maximum, but adding one with weight 0 leaves {H} exactly where it was."}], "equation": "{H} = −Σᵢ {p_i} log₂ {p_i} = Σᵢ {c_i},   with {p_i} = {w_i} / Σⱼ {w_j}", "equation_words": "Turn your weights {w_i} into probabilities {p_i} by dividing by their total. Each outcome gets a share {c_i} = −{p_i} log₂ {p_i} of the surprise, and {H} is the sum of those shares, in bits. Terms with {p_i} = 0 are skipped: 0 · log₂ 0 is taken as 0.", "explorations": [{"title": "Certainty costs nothing, and zero weight means no term", "focus": "s3", "predict": "Set {n} = 4 and give outcome 1 all the weight: {w_i} = (8, 0, 0, 0). What are {p_i} and {H}, and what happens to the three zero-weight outcomes?", "change": "Drag the first bar to its maximum and the other three to 0.", "preset": {"n": 4, "w": [8, 0, 0, 0]}, "observe": "The page shows {p_i} = (1, 0, 0, 0) and {H} = 0 bits. The contributions are 0, 0, 0, 0 — the three zero-weight outcomes still get a row, with an exact 0, never a blank or a NaN.", "why": "−1 · log₂ 1 = 0 for the certain outcome, and the convention 0 · log₂ 0 = 0 (the continuous limit of −p log₂ p as p → 0⁺, which really does go to 0) removes the rest. You learn nothing new from a message you already knew."}, {"title": "Uniform hits the ceiling log₂ {n}", "focus": "s3", "predict": "With {n} = 4, which distribution makes {H} largest, and what is that largest value?", "change": "Make all four weights equal, e.g. {w_i} = (3, 3, 3, 3), then raise {n} to 5 and equalise again.", "preset": {"n": 4, "w": [3, 3, 3, 3]}, "observe": "For {n} = 4 the page shows each {c_i} = 0.500 bits, so {H} = 2.000 bits, exactly log₂ 4. With {n} = 5 equal weights each {c_i} ≈ 0.464 and {H} ≈ 2.322 = log₂ 5.", "why": "For fixed {n}, entropy is maximised when all {p_i} are equal to 1/{n}, and then {H} = −Σ (1/{n}) log₂(1/{n}) = log₂ {n}. Equal odds are the hardest case to guess."}], "takeaway": "Entropy {H} = −Σ {p_i} log₂ {p_i} converts a distribution into one number in bits: 0 for a certain outcome, log₂ {n} at most for {n} equally likely outcomes, and terms with {p_i} = 0 contribute exactly 0.", "misconception": "{H} is a property of the whole distribution, not of a single outcome. A single term {c_i} = −{p_i} log₂ {p_i} peaks near {p_i} ≈ 0.37 (about 0.53 bits), not at {p_i} = 0.5 — yet the total {H} is largest when all outcomes are equally likely. Also, {H} uses the probabilities only: it does not care what the outcomes mean, or whether they are ordered, and it says nothing about a single message.", "grounding": {"paper": "C. E. Shannon, A Mathematical Theory of Communication (1948)", "section": "Part I, Section 6: Choice, Uncertainty and Entropy", "equation": "Theorem 2: H = −K Σ pᵢ log pᵢ", "from_paper": ["For a discrete probability distribution p_1, …, p_n, the entropy is H = −Σ pᵢ log₂ pᵢ (Theorem 2 with base-2 logs, so the unit is bits).", "A term with pᵢ = 0 contributes zero, by continuity.", "A certain outcome gives zero entropy: H = 0 if and only if one pᵢ = 1 and all others are 0.", "For a fixed number of outcomes n, H is largest, and equal to log₂ n, when all pᵢ = 1/n."], "simplifications": ["The weights {w_i} and the division {p_i} = {w_i} / Σ {w_j} are an interface device for editing probabilities; the source talks about p_i directly.", "The 4 weather outcomes, the numbers, and the −p log₂ p curve are our own illustration; the source plots the two-outcome case H(p) in Fig. 7.", "Dragging one bar rescales the others (weights are kept nonnegative and renormalised), which is a UI choice, not part of the theory.", "The gauge and the ceiling marker for log₂ {n} are presentation choices."]}, "controls": [{"id": "n", "type": "slider", "label": "number of outcomes {n}", "sym": "n", "help": "How many outcomes you can see. Extra outcomes start with weight 0 and add nothing until you give them weight.", "min": 2, "max": 6, "step": 1, "value": 4}, {"id": "w", "type": "vector", "label": "weights {w_i} (any nonnegative numbers)", "sym": "w_i", "help": "These are normalised to probabilities {p_i} every time you change them. A zero weight means a zero-probability outcome whose term is exactly 0.", "length": "n", "min": 0, "max": 10, "step": 0.5, "value": [4, 2, 1, 1], "scene": "s1"}, {"id": "uniform", "type": "toggle", "label": "equalise all weights", "help": "Sets every weight to the same value, which makes all probabilities 1/{n} and pushes {H} up to log₂ {n}.", "value": false, "scene": "s3"}], "source_url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf"}</script>
+<script id="p2p-data" type="application/json">{"title": "Scaled dot-product attention: how a query picks which values to carry forward", "hook": "Three rows of Q, three rows of K, three rows of V sit in front of you. Which query is stubborn — pulling almost all of its weight from one key — and which is undecided? You can't tell yet. The score matrix will say.", "why": "Attention lets one position in a sequence gather information from other positions. Each query {q_i} is compared with every key {k_j} by a dot product, the scores are scaled by 1/sqrt({d_k}) to keep them tame, softmax turns each query's scores into weights that sum to 1, and the final output is a weighted average of the value rows {v_j}.", "symbols": [{"key": "Q", "meaning": "query matrix: row i is the query {q_i}, shape (n × {d_k})", "color": "blue"}, {"key": "K", "meaning": "key matrix: row j is the key {k_j}, shape (m × {d_k})", "color": "green"}, {"key": "V", "meaning": "value matrix: row j is the value {v_j}, shape (m × {d_v})", "color": "red"}, {"key": "s_ij", "meaning": "compatibility score of query i with key j: {q_i}·{k_j}", "color": "purple"}, {"key": "alpha_ij", "meaning": "attention weight from query i to key j (softmax over j), {alpha_i} sums to 1", "color": "gold"}, {"key": "d_k", "meaning": "dimension of queries and keys, used for the scale sqrt({d_k})", "color": "teal"}], "scenes": [{"id": "s1", "title": "Scores first: compare every query with every key", "caption": "Row i of {Q} is query {q_i}, row j of {K} is key {k_j}, both with {d_k} numbers. The **score** {s_ij} is the dot product {q_i}·{k_j}: how much query i agrees with key j. Nothing has been decided yet — these are raw, unscaled numbers. **Drag any cell** of the blue, green, red or purple matrices.", "pause": "Look at the first row of scores. Which key wins for query 1 — and can you already trust that winner to dominate the output?"}, {"id": "s2", "title": "Scale by 1/sqrt({d_k}), then softmax each row", "caption": "Raw dot products grow with {d_k}, so we divide by sqrt({d_k}): here {d_k} = 2, so sqrt({d_k}) = 1.41. Then softmax runs **independently on each row** of scaled scores, turning {s_ij} into weights {alpha_ij}. Wait for the number: 0.2 vs 0.8 in a row feels decisive, but watch what scaling flips.", "pause": "If two keys have *exactly* equal scores for one query, what must those two weights be?"}, {"id": "s3", "title": "Weighted average of the values gives each output row", "caption": "Each output row {o_i} = {alpha_i1}{v_1} + {alpha_i2}{v_2} + {alpha_i3}{v_3}, a convex mix of the value rows. Because each {alpha_i} row sums to 1, every output row lies *inside the triangle* formed by the three value points. Drag a value row and the outputs slide with it."}], "equation": "{A} = softmax( {Q} {K}^T / sqrt({d_k}) ) {V}", "equation_words": "Scores {s_ij} = {q_i}·{k_j} form the matrix {Q}{K}^T; divide every score by sqrt({d_k}); softmax each row independently to get weights {alpha_ij}; then multiply by {V} so each output row is a weighted average of value rows.", "explorations": [{"title": "Equal scores → equal weights", "focus": "s2", "predict": "If all three keys give query 1 the *same* score, how much weight does query 1 put on each key?", "change": "Drag every cell of the first row of {K} so that {k_1} = {k_2} = {k_3} = (1, 0).", "preset": {"scale": 1, "q": [[1, 0], [0, 1], [1, 1]], "k": [[1, 0], [1, 0], [1, 0]], "v": [[1, 0], [0, 1], [0, 0]]}, "observe": "Row 1 of {alpha} reads 0.333, 0.333, 0.333. Softmax of equal inputs is the uniform distribution 1/3, and the output row 1 becomes (0.333, 0.333) — the average of the three value rows.", "why": "softmax is unchanged by adding a constant to all inputs, so equal scores are the maximally undecided case: every key gets 1/{m}. With {m} = 3 keys, 1/3 each."}, {"title": "One dominant score → attention collapses onto one value", "focus": "s2", "predict": "Turn scaling off (so scores are raw dot products) and push {k_1} far along the x-axis. Does the weight row stay spread, or collapse?", "change": "Toggle scale to off, then set {k_1} = (5, 0) while {k_2} = {k_3} = (1, 0).", "preset": {"scale": 0, "q": [[1, 0], [0, 1], [1, 1]], "k": [[5, 0], [1, 0], [1, 0]], "v": [[1, 0], [0, 1], [0, 0]]}, "observe": "Row 1 of {alpha} reads something like 0.996, 0.002, 0.002 — query 1 has routed almost entirely to {v_1}. Flip scale back on and the row softens to roughly 0.95, 0.02, 0.02: dividing by sqrt({d_k}) = 1.41 shrinks the gap 5−1 = 4 down to about 2.8 before softmax.", "why": "softmax amplifies differences: for raw scores [5, 1, 1] the e^4 ≈ 55× gap dominates, but scaled scores [3.54, 0.71, 0.71] have an e^2.8 ≈ 17× gap, so the winner is less absolute."}], "takeaway": "{A} does three things in sequence: score every {q_i} against every {k_j}, scale by 1/sqrt({d_k}) and softmax each row so {alpha_i} is a probability vector, then mix the value rows {v_j} with those weights. Change {Q}, {K} or {V} and every number downstream — {s_ij}, {alpha_ij}, {o_i} — moves with it.", "misconception": "Softmax is applied **per query (per row of scores)**, not once over the whole matrix. Two different output rows can have completely different weight rows — query 1 can attend only to {v_3} while query 2 spreads evenly. Also, the scale sqrt({d_k}) is fixed by the embedding dimension, not learned; only {W^Q}, {W^K}, {W^V} (here folded into Q, K, V) are learned in real transformers.", "grounding": {"paper": "Vaswani et al., Attention Is All You Need (2017), arXiv:1706.03762", "section": "Section 3.2.1, Scaled Dot-Product Attention", "equation": "Attention(Q,K,V) = softmax(Q K^T / sqrt(d_k)) V", "from_paper": ["Attention(Q,K,V) = softmax(Q K^T / sqrt(d_k)) V.", "The dot products of the query with all keys measure compatibility; the division by sqrt(d_k) scales them.", "Softmax is applied independently across each query's key scores, producing weights that sum to one.", "The output is the weighted values: Attention(Q,K,V) is a weighted average of the value rows."], "simplifications": ["We use n = m = 3 queries/keys/values with {d_k} = {d_v} = 2 so the numbers are hand-checkable; the paper does not fix these.", "The exact Q, K, V numbers and the two preset configurations are our examples, not the paper's.", "The scaling toggle exposes what the paper *always* does (dividing by sqrt({d_k})); turning it off is a pedagogical comparison only.", "Real transformers stack heads and apply learned projections {W^Q}, {W^K}, {W^V} to inputs; we treat Q, K, V as given.", "The value-space plot is our visualization of 'output is a convex mix of values', not a figure from the paper."]}, "controls": [{"id": "q", "type": "matrix", "label": "queries {Q} — row i is {q_i}", "sym": "Q", "min": -3, "max": 3, "step": 1, "rowLabels": ["q₁", "q₂", "q₃"], "scene": "s1", "value": [[1, 0], [0, 1], [1, 1]]}, {"id": "k", "type": "matrix", "label": "keys {K} — row j is {k_j}", "sym": "K", "min": -3, "max": 3, "step": 1, "rowLabels": ["k₁", "k₂", "k₃"], "scene": "s1", "value": [[1, 0], [0, 1], [1, 1]]}, {"id": "v", "type": "matrix", "label": "values {V} — row j is {v_j}", "sym": "V", "min": -2, "max": 2, "step": 1, "rowLabels": ["v₁", "v₂", "v₃"], "scene": "s1", "value": [[1, 0], [0, 1], [0, 0]]}, {"id": "scale", "type": "toggle", "label": "divide scores by sqrt({d_k})", "sym": "d_k", "scene": "s2", "value": true}], "source_url": "https://arxiv.org/html/1706.03762v7"}</script>
 <script>function compute(s) {
-  const n = M.round(s.n);
-  let w = s.w.slice(0, n).map(x => Math.max(0, x));
-  while (w.length < n) w.push(0);
-  if (s.uniform) w = w.map(() => 1);
-
-  const total = M.sum(w);
-  // All-zero weights: fall back to uniform so we never divide by zero or return NaN.
-  const degenerate = total <= 0;
-  const p = degenerate ? w.map(() => 1 / n) : M.normalize(w);
-
-  const contrib = p.map(x => -M.xlog2x(x));   // 0·log 0 = 0, and p=1 gives 0
-  const H = M.sum(contrib);
-  const Hmax = Math.log2(n);
-  const pMax = p.length ? M.max(p) : 0;
-
-  return {
-    n,
-    w,
-    total,
-    degenerate,
-    p,
-    contrib,
-    H,
-    Hmax,
-    uniformGap: Hmax - H,
-    labels: p.map((_, i) => 'x' + M.subDigits(i + 1)),
-    // number of equally likely outcomes H is worth, 2^H
-    effective: Math.pow(2, H)
-  };
+  const Q = s.q, K = s.k, V = s.v;
+  const dk = Q[0].length;
+  // raw scores s_ij = q_i · k_j
+  const scores = Q.map(qi => K.map(kj => M.dot(qi, kj)));
+  const sdiv = Math.sqrt(dk);
+  // scaled scores
+  const scaled = scores.map(row => row.map(x => (s.scale ? x / sdiv : x)));
+  // per-row softmax
+  const alpha = scaled.map(row => M.softmax(row, 1));
+  // output = alpha @ V  (rows of alpha times V)
+  const O = alpha.map(row => V[0].map((_, c) => M.sum(row.map((a, j) => a * V[j][c]))));
+  const rowSums = alpha.map(row => M.sum(row));
+  return { Q, K, V, dk, sdiv, scores, scaled, alpha, O, rowSums,
+    labels: Q.map((_, i) => 'q' + M.subDigits(i + 1)),
+    keyLabels: K.map((_, j) => 'k' + M.subDigits(j + 1)) };
 }
 
 function render(s, r, kit) {
-  const labels = r.labels;
+  const { scores, scaled, alpha, O, dk, sdiv, keyLabels, labels } = r;
 
-  // ---- Scene 1: weights in, probabilities out ----
-  kit.bars('#s1', r.w, {
-    bind: 'w', sym: 'w_i', labels, axis: 'outcome', decimals: 2, height: 210,
-    min: 0, max: Math.max(1, M.max(r.w)),
-    title: 'Your weights {w_i} — drag these'
-  });
-  kit.readout('#s1', {
-    width: 0.5, label: 'total weight Σ {w_i}', value: r.total, decimals: 2, sym: 'w_i',
-    min: 0, max: Math.max(1, r.n * M.max(r.w)),
-    note: r.degenerate
-      ? 'All weights are zero. The page falls back to equal probabilities 1/{n} so nothing breaks; give one bar some weight to leave this state.'
-      : 'Each probability is {w_i} divided by this total.'
-  });
-  kit.bars('#s1', r.p, {
-    sym: 'p_i', labels, axis: 'outcome', decimals: 3, height: 210, min: 0, max: 1,
-    title: 'Probabilities {p_i} — they always sum to 1',
-    ref: { y: 1 / r.n, label: 'uniform 1/{n}' }
-  });
+  // --- Scene 1: raw inputs + raw scores ---
+  kit.matrix('#s1', r.Q, { bind: 'q', sym: 'Q', rowLabels: labels, colLabels: ['d1', 'd2'],
+    width: 0.5, decimals: 0, min: -3, max: 3, axes: ['query', 'key'],
+    title: 'Queries {Q}' });
+  kit.matrix('#s1', r.K, { bind: 'k', sym: 'K', rowLabels: keyLabels, colLabels: ['d1', 'd2'],
+    width: 0.5, decimals: 0, min: -3, max: 3, axes: ['key', 'key'],
+    title: 'Keys {K}' });
+  kit.matrix('#s1', scores, { sym: 's_ij', rowLabels: labels, colLabels: keyLabels,
+    width: 0.5, decimals: 0, min: -6, max: 6, axes: ['query', 'key'],
+    title: 'Raw scores {s_ij} = {q_i}·{k_j}',
+    tip: (i, j, v) => '{q_' + M.subDigits(i + 1) + '}·{k_' + M.subDigits(j + 1) + '} = ' + kit.fmt(v, 0) });
+  kit.matrix('#s1', r.V, { bind: 'v', sym: 'V', rowLabels: keyLabels, colLabels: ['v1', 'v2'],
+    width: 0.5, decimals: 0, min: -2, max: 2, axes: ['key', 'key'],
+    title: 'Values {V}' });
 
-  // ---- Scene 2: per-outcome contribution ----
-  kit.bars('#s2', r.contrib, {
-    sym: 'c_i', labels, axis: 'outcome', decimals: 3, height: 210, max: 0.6,
-    title: 'Share of each outcome, {c_i} = −{p_i} log₂ {p_i} (bits)'
-  });
-  kit.plot('#s2', {
-    width: 0.5, height: 220, domain: [0, 1], yRange: [0, 0.6],
-    title: 'Every share lies on the curve −p log₂ p',
-    series: [{ fn: x => -M.xlog2x(x), sym: 'c_i', label: '−p log₂ p', area: true }],
-    points: r.p.map((p, i) => ({ x: p, y: r.contrib[i], label: labels[i], sym: 'p_i', axis: 'outcome', index: i })),
-    vlines: [{ x: 1 / Math.E, label: 'p = 1/e ≈ 0.37' }],
-    xLabel: 'probability p', yLabel: 'bits'
-  });
-  kit.formula('#s2', 'total so far: ' +
-    r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
+  // --- Scene 2: scaling + softmax per row ---
+  kit.matrix('#s2', scaled, { sym: 's_ij', rowLabels: labels, colLabels: keyLabels,
+    width: 0.5, decimals: 2, min: -4, max: 4, axes: ['query', 'key'],
+    title: 'Scaled scores {s_ij}/sqrt({d_k})   ({d_k} = ' + dk + ', sqrt = ' + kit.fmt(sdiv, 2) + ')' });
+  kit.matrix('#s2', alpha, { sym: 'alpha_ij', rowLabels: labels, colLabels: keyLabels,
+    width: 0.5, decimals: 3, min: 0, max: 1, axes: ['query', 'key'],
+    title: 'Attention weights {alpha_ij} = softmax over j',
+    tip: (i, j, v) => '{alpha_' + M.subDigits(i + 1) + M.subDigits(j + 1) + '} = ' + kit.fmt(v, 3) });
+  kit.bars('#s2', alpha[0], { sym: 'alpha_ij', labels: keyLabels, axis: 'key', decimals: 3, max: 1,
+    width: 0.5, title: 'Row 1 weights {alpha_1j} (should sum to 1)',
+    ref: { y: 1 / keyLabels.length, label: 'uniform 1/3' } });
 
-  // ---- Scene 3: sum them up ----
-  kit.readout('#s3', {
-    width: 0.5, label: 'Entropy {H}', value: r.H, unit: 'bits', sym: 'H', decimals: 3,
-    min: 0, max: r.Hmax, compare: { value: r.Hmax, label: 'ceiling log₂ {n}' },
-    note: r.H < 1e-12
-      ? 'Zero bits: the outcome is known in advance.'
-      : 'As uncertain as ' + kit.fmt(r.effective, 2) + ' equally likely outcomes.'
-  });
+  // --- Scene 3: weighted values + value-space picture ---
   kit.steps('#s3', [
-    { label: 'shares {c_i} (bits)', value: r.contrib, sym: 'c_i' },
-    { label: 'total {H}', value: r.H, op: 'add the shares', sym: 'H', unit: 'bits' }
-  ], { width: 0.5, decimals: 3 });
-  kit.formula('#s3', '{H} = ' +
-    r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
-
-  // ---- Scene 4: the ceiling and where we sit under it ----
-  kit.readout('#s4', {
-    width: 0.5, label: 'gap to the ceiling, log₂ {n} − {H}', value: r.uniformGap, unit: 'bits',
-    sym: 'H', decimals: 3, min: 0, max: r.Hmax,
-    note: r.uniformGap < 1e-9
-      ? 'At the ceiling: all {n} outcomes equally likely, {H} = log₂ {n}.'
-      : 'Largest single probability {p_i} = ' + kit.fmt(r.pMax, 3) + '. The more one outcome dominates, the more this gap grows.'
+    { label: 'weights row 1 {alpha_1j}', value: alpha[0], sym: 'alpha_ij', decimals: 3 },
+    { label: 'values {V}', value: r.V, sym: 'V', op: 'multiply' },
+    { label: 'output {o_1}', value: O[0], sym: 's_ij', op: 'sum', decimals: 3 }
+  ], { decimals: 3 });
+  kit.plane('#s3', {
+    range: [-1.5, 2.5, -1.5, 2.5], width: 0.5, height: 260,
+    title: 'Outputs sit inside the triangle of the {v_j}',
+    vectors: [
+      { id: 'v', row: 0, label: '{v_1}', sym: 'V' },
+      { id: 'v', row: 1, label: '{v_2}', sym: 'V' },
+      { id: 'v', row: 2, label: '{v_3}', sym: 'V' }
+    ],
+    points: O.map((o, i) => ({ x: o[0], y: o[1], label: '{o_' + M.subDigits(i + 1) + '}', sym: 's_ij' })),
+    polygons: [{ points: r.V.map(v => ({ x: v[0], y: v[1] })) }],
+    maxWidth: 260
   });
-  kit.plot('#s4', {
-    width: 0.5, height: 220, domain: [2, 8], yRange: [0, 3.2],
-    title: 'Ceiling log₂ {n} as more outcomes become visible',
-    series: [{ fn: x => Math.log2(x), sym: 'n', label: 'log₂ {n}' }],
-    points: [{ x: r.n, y: r.Hmax, label: 'ceiling now', sym: 'n' }],
-    marker: { x: r.n, bind: 'n', label: '{n} = ' + r.n },
-    vlines: [{ x: r.n, label: '{n} = ' + r.n }],
-    xLabel: '{n} outcomes', yLabel: 'bits'
-  });
-  kit.bars('#s4', r.p, {
-    sym: 'p_i', labels, axis: 'outcome', decimals: 3, height: 190, min: 0, max: 1,
-    title: 'The distribution behind {H} = ' + kit.fmt(r.H, 3) + ' bits',
-    highlight: r.pMax > 0 ? [M.argmax(r.p)] : []
-  });
+  kit.readout('#s3', { width: 0.5, label: 'Row sums Σ_j {alpha_ij}', value: r.rowSums[0], sym: 'alpha_ij',
+    decimals: 6, min: 0, max: 1.001, compare: { value: 1, label: 'must equal 1' },
+    note: 'Every row of softmax sums to 1, so each output is a convex mixture of value rows.' });
 }
 
 const checks = [
-  { label: 'probabilities sum to 1', test: (s, r) => Math.abs(M.sum(r.p) - 1) < 1e-9, show: (s, r) => 'Σ pᵢ = ' + M.fmt(M.sum(r.p), 6) },
-  { label: 'every {p_i} is nonnegative', test: (s, r) => r.p.every(p => p >= 0), show: (s, r) => 'min pᵢ = ' + M.fmt(M.min(r.p), 6) },
-  { label: '0 ≤ {H} ≤ log₂ {n}', test: (s, r) => r.H >= -1e-12 && r.H <= r.Hmax + 1e-9, show: (s, r) => M.fmt(r.H, 4) + ' ≤ ' + M.fmt(r.Hmax, 4) },
-  { label: 'zero-probability outcomes contribute exactly 0', test: (s, r) => r.p.every((p, i) => p > 0 || r.contrib[i] === 0), show: (s, r) => 'zeros: ' + r.p.filter(p => p === 0).length },
-  { label: 'entropy is unchanged by adding zero-weight outcomes', test: (s, r) => { const w = r.w.concat([0, 0, 0]).slice(0, Math.max(r.n, r.w.length + 3)); const t = M.sum(w) || 1; const p2 = w.map(x => x / t); const H2 = M.sum(p2.map(x => -M.xlog2x(x))); return Math.abs(H2 - r.H) < 1e-9; } }
+  { label: 'every weight row sums to 1', test: (s, r) => r.rowSums.every(v => Math.abs(v - 1) < 1e-9),
+    show: (s, r) => 'Σ_j {alpha_1j} = ' + M.fmt(r.rowSums[0], 6) },
+  { label: 'weights are non-negative', test: (s, r) => r.alpha.every(row => row.every(v => v >= -1e-12)),
+    show: (s, r) => 'min {alpha_ij} = ' + M.fmt(Math.min(...r.alpha.flat()), 6) },
+  { label: 'scaled scores equal raw/sqrt({d_k}) when scaling on', test: (s, r) => s.scale ? r.scaled.every((row, i) => row.every((v, j) => Math.abs(v - r.scores[i][j] / r.sdiv) < 1e-9)) : true,
+    show: (s, r) => (s.scale ? '÷ sqrt(' + r.dk + ') = ÷ ' + M.fmt(r.sdiv, 3) : 'scaling off (raw scores used)') },
+  { label: 'output is a convex mix of value rows', test: (s, r) => r.alpha.every(row => row.every(v => v >= -1e-12)) && r.rowSums.every(v => Math.abs(v - 1) < 1e-9),
+    show: (s, r) => 'o_1 = ' + r.alpha[0].map((a, j) => M.fmt(a, 2) + '·v' + (j + 1)).join(' + ') }
 ];</script>
 <script>
 kit.boot(
