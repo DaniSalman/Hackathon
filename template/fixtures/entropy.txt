@@ -1,0 +1,96 @@
+<content>
+{
+  "title": "Entropy: how much does an outcome surprise you, on average?",
+  "hook": "A fair coin and a trick coin that always lands heads. Which one actually tells you something when you see the result?",
+  "why": "Shannon wanted one number that measures how much choice, or uncertainty, a source of messages has. That number, entropy, is measured in bits and depends only on the probabilities of the outcomes.",
+  "symbols": [
+    {"key": "p_i", "meaning": "probability of outcome i", "color": "blue"},
+    {"key": "n", "meaning": "number of possible outcomes", "color": "green"},
+    {"key": "H", "meaning": "entropy: average uncertainty, in bits", "color": "yellow"}
+  ],
+  "scenes": [
+    {"id": "s1", "title": "Each outcome adds −{p_i} log₂ {p_i} bits",
+     "caption": "Drag the blue bars to reshape the distribution; the others rescale so that the {p_i} always sum to 1. Each outcome contributes −{p_i} log₂ {p_i} bits, and {H} is the total. Every contribution sits on the same curve: rare outcomes are very surprising but rarely happen, near-certain ones happen often but surprise nobody."}
+  ],
+  "equation": "{H} = −Σ {p_i} log₂ {p_i}",
+  "equation_words": "Weight each outcome's surprise, −log₂ {p_i}, by how often it happens, {p_i}, and add them up.",
+  "explorations": [
+    {"title": "Certainty means zero bits", "focus": "s1",
+     "predict": "If outcome 1 is guaranteed ({p_i} = 1 for it, 0 for the rest), how many bits do you learn from seeing the outcome?",
+     "change": "Set {n} = 4 and drag the first bar all the way to 1.",
+     "preset": {"n": 4, "p": [1, 0, 0, 0]},
+     "observe": "{H} drops to exactly 0 bits and every contribution bar vanishes.",
+     "why": "log₂ 1 = 0, so the certain outcome adds nothing, and outcomes with {p_i} = 0 add nothing because p log p → 0 as p → 0 (the convention 0 · log 0 = 0)."},
+    {"title": "Equal odds give the most uncertainty", "focus": "s1",
+     "predict": "With {n} = 4 outcomes, which distribution makes {H} as large as possible, and how large?",
+     "change": "Make all four bars equal (0.25 each).",
+     "preset": {"n": 4, "p": [0.25, 0.25, 0.25, 0.25]},
+     "observe": "{H} = 2 bits, the gauge is full, and each outcome contributes exactly 0.5 bits.",
+     "why": "For fixed {n}, {H} is maximal and equal to log₂ {n} when all {p_i} = 1/{n}: each outcome adds −0.25 · log₂ 0.25 = 0.5 bits."}
+  ],
+  "takeaway": "{H} measures how unpredictable a source is: 0 bits when the outcome is certain, and log₂ {n} bits, its maximum, when all {n} outcomes are equally likely.",
+  "misconception": "Entropy belongs to the whole distribution, not to one outcome or to what a message means. Also, a single term −{p_i} log₂ {p_i} peaks at {p_i} = 1/e ≈ 0.37 (about 0.53 bits), not at 0.5 — yet the total {H} is largest when all outcomes are equal.",
+  "grounding": {
+    "paper": "C. E. Shannon, A Mathematical Theory of Communication (1948)",
+    "section": "Part I, Section 6: Choice, Uncertainty and Entropy",
+    "equation": "Theorem 2: H = −K Σ pᵢ log pᵢ",
+    "from_paper": [
+      "H = −K Σ pᵢ log pᵢ, where K is a positive constant that only fixes the unit of measure (Theorem 2).",
+      "H = 0 if and only if one pᵢ equals 1 and all others are 0; otherwise H is positive.",
+      "For a given n, H is largest, equal to log n, when all pᵢ are equal to 1/n."
+    ],
+    "simplifications": [
+      "We take base-2 logarithms (K = 1), so H is measured in bits.",
+      "Outcome labels x₁…x₈ and the starting distribution are our own example.",
+      "Dragging one bar rescales the others so the probabilities sum to 1; this is an interface choice, not part of the theory.",
+      "The −p log₂ p curve is our visualization; Shannon plots the two-outcome case H(p) in Fig. 7."
+    ]
+  }
+}
+</content>
+<controls>
+[
+  {"id": "n", "type": "slider", "label": "number of outcomes {n}", "sym": "n", "min": 2, "max": 8, "step": 1, "value": 4},
+  {"id": "p", "type": "simplex", "label": "probabilities {p_i} (always sum to 1)", "sym": "p_i", "length": "n", "value": [0.5, 0.25, 0.125, 0.125]}
+]
+</controls>
+<compute>
+function compute(s) {
+  const p = M.normalize(s.p.slice(0, s.n));
+  const contrib = p.map(x => -M.xlog2x(x));          // 0·log 0 = 0
+  const H = M.sum(contrib);
+  return { p, contrib, H, Hmax: Math.log2(s.n), labels: p.map((_, i) => 'x' + M.subDigits(i + 1)) };
+}
+</compute>
+<render>
+function render(s, r, kit) {
+  kit.bars('#s1', r.p, { bind: 'p', sym: 'p_i', labels: r.labels, axis: 'outcome', width: 0.5, decimals: 2,
+    title: 'Probabilities {p_i}', ref: { y: 1 / s.n, label: 'uniform 1/{n}' } });
+  kit.bars('#s1', r.contrib, { sym: 'H', labels: r.labels, axis: 'outcome', width: 0.5, max: 0.6, decimals: 3,
+    title: 'Contribution −{p_i} log₂ {p_i} (bits)' });
+  kit.plot('#s1', { width: 0.5, height: 240, domain: [0, 1], yRange: [0, 0.6],
+    title: 'Every outcome sits on the curve −p log₂ p',
+    series: [{ fn: x => -M.xlog2x(x), sym: 'H', label: '−p log₂ p', area: true }],
+    points: r.p.map((p, i) => ({ x: p, y: r.contrib[i], label: r.labels[i], sym: 'p_i', axis: 'outcome', index: i })),
+    vlines: [{ x: 1 / Math.E, label: '1/e' }], xLabel: 'probability p', yLabel: 'bits' });
+  kit.readout('#s1', { width: 0.5, label: 'Entropy {H}', value: r.H, unit: 'bits', sym: 'H', decimals: 3,
+    min: 0, max: r.Hmax, compare: { value: r.Hmax, label: 'max = log₂ {n}' },
+    note: r.H < 1e-12 ? 'No uncertainty: the outcome is known in advance.' : 'Equal to about ' + kit.fmt(Math.pow(2, r.H), 2) + ' equally likely outcomes.' });
+  kit.formula('#s1', '{H} = ' + r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
+}
+</render>
+<checks>
+const checks = [
+  { label: 'probabilities sum to 1', test: (s, r) => Math.abs(M.sum(r.p) - 1) < 1e-9, show: (s, r) => 'Σ p = ' + M.fmt(M.sum(r.p), 6) },
+  { label: '0 ≤ {H} ≤ log₂ {n}', test: (s, r) => r.H >= -1e-12 && r.H <= r.Hmax + 1e-9, show: (s, r) => M.fmt(r.H, 4) + ' ≤ ' + M.fmt(r.Hmax, 4) },
+  { label: 'zero-probability outcomes add 0 bits', test: (s, r) => r.p.every((p, i) => p > 0 || r.contrib[i] === 0) }
+];
+</checks>
+<tests>
+[
+  {"state": {"n": 4, "p": [1, 0, 0, 0]}, "expect": {"H": 0}},
+  {"state": {"n": 4, "p": [0.25, 0.25, 0.25, 0.25]}, "expect": {"H": 2}},
+  {"state": {"n": 2, "p": [0.5, 0.5]}, "expect": {"H": 1}},
+  {"state": {"n": 4, "p": [0.5, 0.25, 0.125, 0.125]}, "expect": {"H": 1.75}}
+]
+</tests>
