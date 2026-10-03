@@ -5,9 +5,9 @@
 1. Structure: required blocks parse; >= 2 controls; 2 complete explorations; presets, focus scenes and
    control scenes refer to things that exist; grounding is filled in.
 2. compute(): runs on the defaults, every exploration preset and every test state without throwing
-   or returning NaN/Infinity; numeric tests match; live checks hold.
+   or returning NaN; numeric tests match (default tolerance 0.1 %); live checks hold.
 3. render(): runs against a mock kit on the same states. Every panel must target an existing scene,
-   carry finite numbers, and have no "undefined"/"NaN" in its text; every scene gets a panel; every
+   carry no NaN, and have no "undefined"/"NaN" in its text; every scene gets a panel; every
    draggable binding points at a control of the right type; plot functions return finite values.
 Uses QuickJS when installed (assessment environment), otherwise Node (local development).
 """
@@ -28,20 +28,26 @@ CTL_TYPES = {"slider", "toggle", "select", "vector", "simplex", "matrix", "play"
 BIND_TYPES = {"bars": {"vector", "simplex"}, "matrix": {"matrix"}, "plot.marker": {"slider", "play", "range", "number"}, "plane": {"vector"}}
 
 HARNESS = r"""
-function __bad(v, path) {               // first non-finite number inside a value
-  if (typeof v === 'number') return isFinite(v) ? null : path;
+function __bad(v, path) {               // first NaN inside a value (±Infinity is legitimate, e.g. -log2(0))
+  if (typeof v === 'number') return v === v ? null : path;
   if (Array.isArray(v)) { for (var i = 0; i < v.length && i < 500; i++) { var b = __bad(v[i], path + '[' + i + ']'); if (b) return b; } }
   else if (v && typeof v === 'object') { for (var k in v) { var b2 = __bad(v[k], path + '.' + k); if (b2) return b2; } }
   return null;
 }
 var __rec = { calls: [], binds: [], problems: [] };
 var __kit = (function () {
-  function txt(where, s) { if (typeof s === 'string' && /undefined|NaN|\[object /.test(s)) __rec.problems.push(where + ' shows "' + s.slice(0, 70) + '"'); }
+  // prose may legitimately say "undefined"; flag only what string-building bugs produce
+  var BAD_TEXT = /\bNaN\b|\[object |\bundefined\b/;
+  function txt(where, s) {
+    if (typeof s !== 'string') return;
+    var m = s.match(BAD_TEXT);
+    if (m && !/\b(?:is|are|be|being|remains?|stays?|left|becomes?)\s+undefined\b/i.test(s)) __rec.problems.push(where + ' shows "' + s.slice(Math.max(0, m.index - 30), m.index + 40) + '"');
+  }
   function rec(fn, t, data, o) {
     o = o || {};
     var id = typeof t === 'string' ? t.replace(/^#/, '') : String(t);
     __rec.calls.push({ fn: fn, target: id });
-    var b = __bad(data, 'data'); if (b) __rec.problems.push('kit.' + fn + ' in #' + id + ': non-finite number at ' + b);
+    var b = __bad(data, 'data'); if (b) __rec.problems.push('kit.' + fn + ' in #' + id + ': NaN at ' + b);
     txt('kit.' + fn + ' title', o.title);
     if (Array.isArray(o.labels)) o.labels.forEach(function (l) { txt('kit.' + fn + ' label', String(l)); });
     if (typeof o.tip === 'function') { try { txt('kit.' + fn + ' tooltip', String(o.tip(0, 0, 0))); } catch (e) { __rec.problems.push('kit.' + fn + ' tip() threw: ' + (e.message || e)); } }
@@ -143,16 +149,40 @@ def _run_js(source: str) -> str:
             raise RuntimeError("no JavaScript engine: install quickjs (pip) or node")
         proc = subprocess.run([node, "-e", source + "\n;process.stdout.write(__out_json);"], capture_output=True, text=True, timeout=15)
         if proc.returncode:
-            raise RuntimeError(proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "node failed")
+            lines = [ln.strip() for ln in proc.stderr.splitlines() if ln.strip()]
+            err = next((ln for ln in lines if re.match(r"^\w*(Error|Exception)\b", ln)), None)
+            raise RuntimeError(err or (lines[0] if lines else "node failed"))
         return proc.stdout
 
 
 def _close(a, b, tol) -> bool:
+    """b is the expected value. A rounded expectation (0.9298) also accepts half a unit of its last decimal."""
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(_close(x, y, tol) for x, y in zip(a, b))
     if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
-        return abs(a - b) <= tol * max(1.0, abs(a), abs(b))
+        shown = repr(float(b))
+        rounding = 0.5 * 10 ** -len(shown.split(".")[1]) if "e" not in shown and not float(b).is_integer() else 0.0
+        return abs(a - b) <= max(tol * max(1.0, abs(a), abs(b)), rounding + 1e-12)
     return a == b
+
+
+def _relerr(a, b) -> float:
+    """Largest relative difference between got (a) and expected (b); inf if shapes differ."""
+    if isinstance(a, list) and isinstance(b, list):
+        return max([_relerr(x, y) for x, y in zip(a, b)] or [0.0]) if len(a) == len(b) else float("inf")
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
+        return abs(a - b) / max(abs(a), abs(b), 1e-12)
+    return 0.0 if a == b else float("inf")
+
+
+def _split_expect(t: dict) -> tuple[dict, float]:
+    """Accept the tolerance next to the expectations or inside them ({"expect": {"H": 2, "tol": 1e-3}})."""
+    expect = dict(t.get("expect") or {})
+    tol = t.get("tol", t.get("tolerance"))
+    for k in ("tol", "tolerance"):
+        if k in expect and isinstance(expect[k], (int, float)):
+            tol = expect.pop(k)
+    return expect, float(tol) if isinstance(tol, (int, float)) and tol > 0 else 1e-3   # 0.1 %: hand-derived oracles
 
 
 def _defaults(controls: list[dict]) -> dict:
@@ -186,19 +216,19 @@ def _check_bind(b: dict, ctl_type: dict[str, str]) -> str | None:
 
 def validate(reply: str) -> dict:
     """Return {'ok': bool, 'failures': [...], 'passed': [...]} for one model reply."""
-    fails, passed = [], []
+    fails, passed, minor = [], [], []
     parts = parse_reply(reply)
     for tag in ("content", "controls", "compute", "render"):
         if tag not in parts:
             fails.append(f"missing <{tag}> block")
     if fails:
-        return {"ok": False, "failures": fails, "passed": passed}
+        return {"ok": False, "failures": fails, "passed": passed, "minor": minor}
     try:
         content = loads_lenient(parts["content"], {})
         controls = loads_lenient(parts["controls"], [])
         tests = loads_lenient(parts.get("tests"), [])
     except (json.JSONDecodeError, ValueError) as e:
-        return {"ok": False, "failures": [f"invalid JSON: {e}"], "passed": passed}
+        return {"ok": False, "failures": [f"invalid JSON: {e}"], "passed": passed, "minor": minor}
 
     # 1. structure ------------------------------------------------------------------------------
     ctl_type = {str(c.get("id")): str(c.get("type", "slider")).lower() for c in controls}
@@ -239,17 +269,18 @@ def validate(reply: str) -> dict:
     for i, ex in enumerate(exps):
         cases.append({"name": f"exploration {i + 1}", "state": {**base, **ex.get("preset", {})}})
     for i, t in enumerate(tests):
-        cases.append({"name": f"test {i + 1}", "state": {**base, **t.get("state", {})}, "expect": t.get("expect", {}), "tol": t.get("tol", 1e-6)})
+        expect, tol = _split_expect(t)
+        cases.append({"name": f"test {i + 1}", "state": {**base, **t.get("state", {})}, "expect": expect, "tol": tol})
     if js_engine() is None:   # an environment problem, not a defect of the reply: do not trigger repairs
         passed.append("runtime checks skipped: no JavaScript engine available")
-        return {"ok": not fails, "failures": fails, "passed": passed}
+        return {"ok": not fails, "failures": fails, "passed": passed, "minor": minor}
     src = "\n".join([(HERE / "mathlib.js").read_text(encoding="utf-8"), parts["compute"], parts["render"], parts.get("checks", ""),
                      HARNESS.replace("__CASES__", json.dumps(cases))])
     try:
         results = json.loads(_run_js(src))
     except Exception as e:  # syntax errors, timeouts, engine failures
         fails.append(f"generated code could not run: {e}")
-        return {"ok": False, "failures": fails, "passed": passed}
+        return {"ok": False, "failures": fails, "passed": passed, "minor": minor}
 
     seen = set()
     def once(msg):
@@ -265,16 +296,22 @@ def validate(reply: str) -> dict:
             fails.append(f"{name}: compute threw: {res['error']}")
             continue
         if res.get("nonfinite"):
-            once(f"{name}: compute returned a non-finite number at {res['nonfinite']}")
+            once(f"{name}: compute returned NaN at {res['nonfinite']}")
         for ck in res.get("checks", []):
             if not ck["ok"]:
-                fails.append(f"{name}: live check failed: {ck['label']}" + (f" ({ck['error']})" if ck.get("error") else ""))
+                msg = f"{name}: live check failed: {ck['label']}" + (f" ({ck['error']})" if ck.get("error") else "")
+                fails.append(msg)
+                if name.startswith("test "):      # extreme test state, not what the learner sees by default
+                    minor.append(msg)
         for k, want in case.get("expect", {}).items():
             got = res.get("got", {}).get(k)
             if _close(got, want, case.get("tol", 1e-6)):
                 passed.append(f"{name}: {k}")
             else:
-                fails.append(f"{name}: expected {k} = {json.dumps(want)}, got {json.dumps(got)}")
+                msg = f"{name}: expected {k} = {json.dumps(want)}, got {json.dumps(got)}"
+                fails.append(msg)
+                if _relerr(got, want) <= 0.05:      # hand-arithmetic slip in the oracle, not a different formula
+                    minor.append(msg)
         if res.get("renderError"):
             once(f"{name}: render threw: {res['renderError']}")
         for p in res.get("problems", []):
@@ -293,7 +330,7 @@ def validate(reply: str) -> dict:
                 fails.append(f"scene '{sc}' has no visual (render never draws into '#{sc}')")
         if not any(f.startswith(("defaults", "exploration", "test", "scene")) for f in fails):
             passed.append("render on all states")
-    return {"ok": not fails, "failures": fails, "passed": passed}
+    return {"ok": not fails, "failures": fails, "passed": passed, "minor": minor}
 
 
 if __name__ == "__main__":

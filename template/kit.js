@@ -43,7 +43,9 @@
   }
   function svg(tag, attrs, parent) {
     var e = document.createElementNS(NS, tag);
-    if (attrs) for (var k in attrs) if (attrs[k] != null) e.setAttribute(k, attrs[k]);
+    if (attrs) for (var k in attrs) if (attrs[k] != null) {
+      if (k === 'fill' && tag === 'text') e.style.fill = attrs[k]; else e.setAttribute(k, attrs[k]);
+    }
     if (parent) parent.appendChild(e);
     return e;
   }
@@ -521,7 +523,7 @@
     });
     for (var ii = 0; ii < R; ii++) for (var jj = 0; jj < C; jj++) {
       var g = cells[ii * C + jj], rc = g.firstChild, tx = g.lastChild, v = A[ii][jj];
-      rc._heat = (function (rect, txt) { return function (tv) { var f = fillOf(tv); rect.setAttribute('fill', f); txt.setAttribute('fill', lumOf(f) > 0.5 ? '#0b0c0e' : '#f2f2f2'); }; })(rc, tx);
+      rc._heat = (function (rect, txt) { return function (tv) { var f = fillOf(tv); rect.setAttribute('fill', f); txt.style.fill = lumOf(f) > 0.5 ? '#0b0c0e' : '#f2f2f2'; }; })(rc, tx);
       rc.setAttribute('x', padL + jj * cs + 2); rc.setAttribute('y', padT + ii * cs + 2); rc.setAttribute('width', cs - 4); rc.setAttribute('height', cs - 4);
       rc.setAttribute('stroke', 'rgba(255,255,255,.06)');
       tween(rc, { heat: heatT(v) }, { from: g._new ? { heat: 0 } : null });
@@ -650,7 +652,7 @@
       ci.setAttribute('fill', cc); ci.setAttribute('stroke', '#0c0d10'); ci.setAttribute('stroke-width', 2); ci.setAttribute('r', p.r || 6);
       var px = isNum(p.x) ? x(p.x) : -99, py = isNum(p.y) ? clamp(y(p.y), box.t - 30, box.b + 30) : -99;
       tween(ci, { cx: px, cy: py }, { from: g._new ? { cy: base } : null });
-      stext(tt, p.label || ''); tt.setAttribute('fill', cc);
+      stext(tt, p.label || ''); tt.style.fill = cc;
       tween(tt, { x: px + 9, y: py - 9 }, { from: g._new ? { y: base - 9 } : null });
       if (p.axis) { var pa = {}; pa[p.axis] = p.index != null ? p.index : i; link(g, pa); }
       (function (pp, node) { hover(node, function () { return (pp.label ? md(pp.label) + ': ' : '') + '(<span class="tv">' + fmt(pp.x, 3) + '</span>, <span class="tv">' + fmt(pp.y, 3) + '</span>)' + (pp.tip ? '<div class="tm">' + md(pp.tip) + '</div>' : ''); }, pp.axis ? function () { var a = {}; a[pp.axis] = pp.index != null ? pp.index : i; return a; } : null); })(p, g);
@@ -755,7 +757,7 @@
       if (!xy || !isNum(xy[0]) || !isNum(xy[1])) xy = [isNum(v.x) ? v.x : 0, isNum(v.y) ? v.y : 0];
       var f = v.from || [0, 0];
       a._style(cc, v.width || 3.2, v.dashed, v.opacity);
-      stext(a._lab, v.label || ''); a._lab.setAttribute('fill', cc);
+      stext(a._lab, v.label || ''); a._lab.style.fill = cc;
       a._hd.style.display = v.bind ? '' : 'none'; a._hd.setAttribute('stroke', cc);
       tween(a, { vec: [x(f[0]), y(f[1]), x(xy[0]), y(xy[1])] }, { from: a._new ? { vec: [x(f[0]), y(f[1]), x(f[0]) + 0.01, y(f[1])] } : null });
       if (v.axis) { var va = {}; va[v.axis] = v.index != null ? v.index : i; link(a, va); }
@@ -772,7 +774,7 @@
       ci.setAttribute('fill', cc); ci.setAttribute('stroke', '#0c0d10'); ci.setAttribute('stroke-width', 2); ci.setAttribute('r', p.r || 6);
       if (p.bind) ci.classList.add('handle', 'free');
       tween(ci, { cx: x(xy[0]), cy: y(xy[1]) }, { from: g._new ? { cx: x(0), cy: y(0) } : null });
-      stext(tt, p.label || ''); tt.setAttribute('fill', cc);
+      stext(tt, p.label || ''); tt.style.fill = cc;
       tween(tt, { x: x(xy[0]) + 10, y: y(xy[1]) - 10 }, { from: g._new ? { x: x(0) + 10, y: y(0) - 10 } : null });
       if (p.axis) { var pa = {}; pa[p.axis] = p.index != null ? p.index : i; link(g, pa); }
       (function (pp2, node, ii) { hover(node, function () { var q = pp2.bind ? bindGet(pp2.bind) : [pp2.x, pp2.y]; return (pp2.label ? md(pp2.label) + ' = ' : '') + '(<span class="tv">' + fmt(q[0], 3) + '</span>, <span class="tv">' + fmt(q[1], 3) + '</span>)' + (pp2.tip ? '<div class="tm">' + md(pp2.tip) + '</div>' : ''); }, pp2.axis ? function () { var aa = {}; aa[pp2.axis] = pp2.index != null ? pp2.index : ii; return aa; } : null); })(p, g, i);
@@ -835,7 +837,7 @@
       tween(ci, { r: r }, { from: g._new ? { r: 0 } : null });
       tv.setAttribute('x', P[i][0]); tv.setAttribute('y', P[i][1] + 4);
       tv.textContent = hasV && isNum(vals[i]) ? fmt(vals[i], o.decimals != null ? o.decimals : 2) : '';
-      stext(tl, nd.label != null ? nd.label : String(nd.id != null ? nd.id : i)); tl.setAttribute('x', P[i][0]); tl.setAttribute('y', P[i][1] - r - 7); tl.setAttribute('fill', c);
+      stext(tl, nd.label != null ? nd.label : String(nd.id != null ? nd.id : i)); tl.setAttribute('x', P[i][0]); tl.setAttribute('y', P[i][1] - r - 7); tl.style.fill = c;
       var na = {}; na[axis] = i; link(g, na);
       (function (ii, nd2, node) {
         hover(node, function () { return md(nd2.label != null ? nd2.label : nd2.id) + (hasV ? ': <span class="tv">' + fmt(Number(nd2.value), 4) + '</span>' : '') + (nd2.tip ? '<div class="tm">' + md(nd2.tip) + '</div>' : ''); }, function () { var a = {}; a[axis] = ii; return a; });
@@ -987,7 +989,7 @@
       }
       var st = it.st, c = col(st.color || st.sym, PALETTE.white);
       if (it.t === 'arrow') n._style(c, st.width || 2.6, st.dashed, st.opacity);
-      else if (it.t === 'text') { stext(n, it.str); n.setAttribute('fill', c); n.setAttribute('text-anchor', st.anchor || 'middle'); n.setAttribute('font-size', st.size || 13); n.setAttribute('class', 'lab'); }
+      else if (it.t === 'text') { stext(n, it.str); n.style.fill = c; n.setAttribute('text-anchor', st.anchor || 'middle'); n.setAttribute('font-size', st.size || 13); n.setAttribute('class', 'lab'); }
       else {
         n.setAttribute('stroke', st.stroke === false ? 'none' : c); n.setAttribute('stroke-width', st.width || 2);
         n.setAttribute('stroke-dasharray', st.dashed ? '6 5' : '');

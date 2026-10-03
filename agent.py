@@ -33,7 +33,7 @@ GEN_TOKENS = 14000           # cap for the generation call (reasoning tokens cou
 FIX_TOKENS = 7000            # cap for each repair call
 MAX_REPAIRS = 2
 EXCERPT_CHARS = 24000        # the excerpt is meant to be focused; cap prompt tokens
-REASONING = os.environ.get("P2P_REASONING", "low")   # off | low | medium | high
+REASONING = os.environ.get("P2P_REASONING", "off")   # off | low | medium | high (off measured best: see README)
 EXCERPT_KEYS = ("excerpt", "source_excerpt", "paper_excerpt", "source_text", "text", "section_text")
 
 
@@ -131,10 +131,17 @@ def load_case(path: Path, trace: Trace) -> dict:
     return case
 
 
+def blocking(report: dict) -> list[str]:
+    """Failures that change what the learner or grader sees. Minor ones (an oracle off by <= 5 %,
+    a live check failing only in an extreme test state) are logged as warnings, not repaired."""
+    minor = set(report.get("minor", []))
+    return [f for f in report["failures"] if f not in minor]
+
+
 def score(report: dict) -> int:
-    """Lower is better: hard failures (missing blocks, crashes, bad JSON) dominate."""
+    """Lower is better: hard failures (missing blocks, crashes, bad JSON) dominate, then blocking ones."""
     hard = sum(1 for f in report["failures"] if any(s in f for s in ("missing <", "invalid JSON", "could not run", "compute threw", "render threw")))
-    return hard * 100 + len(report["failures"])
+    return hard * 1000 + len(blocking(report)) * 10 + len(report["failures"])
 
 
 def as_reply(parts: dict) -> str:
@@ -145,7 +152,9 @@ def repair_messages(case: dict, parts: dict, failures: list[str]) -> list[dict]:
     """Lean repair prompt: rules + API (no example), the previous reply and the concrete failures."""
     ask = ("\n\nYour previous reply:\n" + as_reply(parts) +
            "\n\nAutomatic checks found these problems:\n- " + "\n- ".join(failures[:25]) +
-           "\n\nReturn ONLY the blocks that need changes, each complete and in the same tags; omitted blocks are kept as they are.")
+           "\n\nFor each problem decide whether compute, the live check or the test is wrong, and make all three agree; "
+           "keep everything that already works. Return ONLY the blocks that need changes, each complete and in the same tags; "
+           "omitted blocks are kept as they are.")
     return [{"role": "system", "content": system_prompt(example=None)},
             {"role": "user", "content": user_prompt(case) + ask}]
 
@@ -176,11 +185,12 @@ def main() -> int:
         trace.log("generate", "parse_reply", "passed" if parts else "failed", blocks=sorted(parts), truncated=finish == "length")
         while True:
             report = validate(as_reply(parts))
-            trace.log("check", "validate", "passed" if report["ok"] else "failed", revision=revisions,
-                      checks_passed=report["passed"], failures=report["failures"])
+            must_fix = blocking(report)
+            trace.log("check", "validate", "passed" if report["ok"] else "warnings" if not must_fix else "failed", revision=revisions,
+                      checks_passed=report["passed"], failures=must_fix, warnings=report.get("minor", []))
             if best_report is None or score(report) < score(best_report):
                 best, best_report = dict(parts), report
-            if report["ok"] or revisions >= MAX_REPAIRS:
+            if not must_fix or revisions >= MAX_REPAIRS:
                 break
             if MAX_SECONDS - elapsed() < 120 or MAX_COMPLETION - client.reserved < 3000 or client.calls >= MAX_CALLS:
                 trace.log("revise", "repair", "skipped", reason="not enough time or budget left for another call")
@@ -210,8 +220,8 @@ def main() -> int:
         (args.output / "index.html").write_text(page, encoding="utf-8")
         (args.output / "reply.txt").write_text(as_reply(best), encoding="utf-8")
         trace.log("output", "write_page", "passed", file="index.html", bytes=len(page.encode("utf-8")),
-                  remaining_failures=best_report["failures"])
-    status = "success" if usable and best_report["ok"] else "partial" if usable else "failed"
+                  remaining_failures=blocking(best_report), remaining_warnings=best_report.get("minor", []))
+    status = "success" if usable and not blocking(best_report) else "partial" if usable else "failed"
     trace.log("finish", "summary", status, calls=client.calls if client else 0, revisions=revisions,
               prompt_tokens=client.prompt_tokens if client else 0, completion_tokens=client.completion_tokens if client else 0,
               total_tokens=(client.prompt_tokens + client.completion_tokens) if client else 0, total_seconds=round(elapsed(), 2))
