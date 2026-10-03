@@ -13,11 +13,14 @@
   ],
   "scenes": [
     {"id": "s1", "title": "Compare: every query meets every key",
-     "caption": "Each row of {Q} is a query arrow, each row of {K} a key arrow. Their dot product {q_i}·{k_j} is large when the arrows point the same way and are long. **Drag the arrow tips** and watch the score grid change. Hover a score to see which pair produced it."},
+     "caption": "Each row of {Q} is a query arrow, each row of {K} a key arrow. Their dot product {q_i}·{k_j} is large when the arrows point the same way and are long. **Drag the arrow tips** and watch the score grid change. Hover a score to see which pair produced it.",
+     "pause": "{q_1} and {k_3} point in opposite directions. What sign will their score have, and how much attention should {q_1} then pay to {k_3}?"},
     {"id": "s2", "title": "Scale: divide by √{d_k}",
-     "caption": "Before the softmax, every score is multiplied by 1/√{d_k} (here 1/√2 ≈ 0.707). The curve shows how peaked the softmax of the inspected query's row becomes as the scores are stretched; the marker shows where scaling puts you."},
+     "caption": "Before the softmax, every score is multiplied by 1/√{d_k} (here 1/√2 ≈ 0.707). The curve shows how peaked the softmax of the inspected query's row becomes as the scores are stretched; the marker shows where scaling puts you.",
+     "pause": "Scaling shrinks every score in a row by the same factor. Can it change which key wins the row?"},
     {"id": "s3", "title": "Normalize: softmax turns scores into weights",
-     "caption": "Softmax exponentiates each score and divides by the row total, so every row of weights {w_ij} is positive and sums to 1. Bigger scores win more than proportionally."},
+     "caption": "Softmax exponentiates each score and divides by the row total, so every row of weights {w_ij} is positive and sums to 1. Bigger scores win more than proportionally.",
+     "pause": "Every row of weights is positive and sums to 1. What does that guarantee about where each output can land?"},
     {"id": "s4", "title": "Mix: the output is a weighted average of values",
      "caption": "Each output {o_i} = Σⱼ {w_ij} {v_j}. Because the weights are positive and sum to 1, every output arrow lands inside the dashed triangle spanned by the value arrows. Drag the values and the outputs follow."}
   ],
@@ -62,9 +65,9 @@
 [
   {"id": "Q", "type": "matrix", "label": "queries {Q} (rows {q_1}, {q_2}, {q_3})", "sym": "Q", "min": -3, "max": 3, "step": 0.1, "value": [[1.5, 0], [0, 1], [0.7, 0.7]], "rowLabels": ["{q_1}", "{q_2}", "{q_3}"]},
   {"id": "K", "type": "matrix", "label": "keys {K}", "sym": "K", "min": -3, "max": 3, "step": 0.1, "value": [[1, 0.2], [0, 1], [-1, -0.5]], "rowLabels": ["{k_1}", "{k_2}", "{k_3}"]},
-  {"id": "V", "type": "matrix", "label": "values {V}", "sym": "V", "min": -3, "max": 3, "step": 0.1, "value": [[2, 0], [0, 2], [-1.5, -1]], "rowLabels": ["{v_1}", "{v_2}", "{v_3}"]},
-  {"id": "scale", "type": "toggle", "label": "divide scores by √{d_k}", "sym": "d_k", "value": true},
-  {"id": "focus", "type": "select", "label": "inspect query", "options": [{"value": 0, "label": "{q_1}"}, {"value": 1, "label": "{q_2}"}, {"value": 2, "label": "{q_3}"}], "value": 0}
+  {"id": "V", "type": "matrix", "label": "values {V}", "sym": "V", "min": -3, "max": 3, "step": 0.1, "value": [[2, 0], [0, 2], [-1.5, -1]], "rowLabels": ["{v_1}", "{v_2}", "{v_3}"], "scene": "s4"},
+  {"id": "scale", "type": "toggle", "label": "divide scores by √{d_k}", "sym": "d_k", "value": true, "scene": "s2"},
+  {"id": "focus", "type": "select", "label": "inspect query", "options": [{"value": 0, "label": "{q_1}"}, {"value": 1, "label": "{q_2}"}, {"value": 2, "label": "{q_3}"}], "value": 0, "scene": "s2"}
 ]
 </controls>
 <compute>

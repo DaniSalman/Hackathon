@@ -77,7 +77,8 @@ button { font: inherit; }
 .rail a .n { color: var(--blue); font-family: var(--serif); margin-right: 6px; }
 
 /* ---------- scenes ---------- */
-.scenes { display: flex; flex-direction: column; gap: 22px; }
+.scenes { display: block; }
+.scenes > * + * { margin-top: 22px; }
 .scene { background: linear-gradient(180deg, var(--panel), var(--bg2)); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; scroll-margin-top: 16px; position: relative; }
 .scene.focus { animation: scenefocus 1.4s ease-out; }
 @keyframes scenefocus { 0% { box-shadow: 0 0 0 0 rgba(255, 228, 94, 0); } 25% { box-shadow: 0 0 0 2px rgba(255, 228, 94, .75), 0 0 40px -6px rgba(255, 228, 94, .5); } 100% { box-shadow: 0 0 0 0 rgba(255, 228, 94, 0); } }
@@ -308,6 +309,29 @@ input.num { -moz-appearance: textfield; }
 .src-grid li { margin: 5px 0; }
 .disclaimer { margin: 18px 0 0; font-size: 13.5px; color: var(--mute); border-top: 1px solid var(--line); padding-top: 12px; }
 .foot { color: var(--mute); font-size: 12.5px; padding: 10px 16px 120px; text-align: center; }
+
+/* ---------- progressive reveal ---------- */
+.locked { max-height: 0 !important; overflow: hidden !important; opacity: 0 !important; margin-top: 0 !important; margin-bottom: 0 !important;
+  padding-top: 0 !important; padding-bottom: 0 !important; border-width: 0 !important; pointer-events: none; }
+.revealing { animation: reveal .9s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes reveal { from { opacity: 0; transform: translateY(24px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+.gate { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 2px 0 10px; }
+.gate::before { content: ""; width: 1.5px; height: 30px; background: linear-gradient(rgba(255, 228, 94, 0), var(--yellow)); }
+main > .gate { margin: -26px 0 -16px; }
+.ponder { max-width: 680px; background: rgba(255, 228, 94, .05); border: 1px dashed rgba(255, 228, 94, .45); border-radius: 14px; padding: 14px 22px; }
+.ponder .eyebrow { font: 600 11px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--yellow); }
+.ponder p { margin: 8px 0 0; font: 19px/1.45 var(--serif); color: #fff; }
+.gate-btn { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; padding: 11px 20px; border-radius: 999px; animation: nudge 2.6s ease-in-out infinite; }
+.gate-btn .nx { font-weight: 500; opacity: .85; }
+.gate-btn .sym { color: #0b0c0e; }
+.gate-btn:hover { animation: none; }
+@keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+.ctl.fresh { animation: ctlnew 2s ease-out; border-radius: 10px; }
+@keyframes ctlnew { 0% { background: transparent; } 15% { background: rgba(255, 228, 94, .09); box-shadow: 0 0 0 6px rgba(255, 228, 94, .09); } 100% { background: transparent; box-shadow: none; } }
+.rail a.lockd { opacity: .38; border-style: dashed; }
+.guide-pill { position: fixed; top: 12px; right: 14px; z-index: 66; background: rgba(22, 25, 31, .92); color: var(--ink2); border: 1px solid var(--line2);
+  border-radius: 999px; padding: 6px 14px; font-size: 12.5px; cursor: pointer; backdrop-filter: blur(6px); }
+.guide-pill:hover { color: #fff; border-color: var(--ink2); }
 
 /* ---------- tooltip ---------- */
 .tip { position: fixed; left: 0; top: 0; z-index: 80; pointer-events: none; opacity: 0; transition: opacity .12s; max-width: 320px;
@@ -1825,7 +1849,7 @@ var M = (function () {
     D.hook = hook;
     D.symbols = asArray(D.symbols).map(function (s) { return { key: String(s.key || s.sym || s.symbol || s.name || ''), meaning: s.meaning || s.desc || '', color: s.color }; }).filter(function (s) { return s.key; });
     D.scenes = asArray(D.scenes).length ? asArray(D.scenes) : [{ id: 's1', title: '', caption: '' }];
-    D.scenes = D.scenes.map(function (sc, i) { return { id: String(sc.id || 's' + (i + 1)), title: sc.title || '', caption: sc.caption || sc.text || '' }; });
+    D.scenes = D.scenes.map(function (sc, i) { return { id: String(sc.id || 's' + (i + 1)), title: sc.title || '', caption: sc.caption || sc.text || '', pause: sc.pause || sc.ponder || '', gate: sc.gate }; });
     D.explorations = asArray(D.explorations);
     D.grounding = D.grounding || {};
     return D;
@@ -1889,6 +1913,13 @@ var M = (function () {
     if (!Object.keys(CTL).length) $('#controls').innerHTML = '<p class="ctl-help">No inputs for this page.</p>';
     Object.keys(CTL).forEach(function (k) { buildCtl(CTL[k]); });
     $('#reset').addEventListener('click', function () { closeNarrator(); animateTo(DEFAULTS, 700); });
+    buildStages();
+    document.querySelectorAll('#rail a').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        var k = stageOfScene(a.getAttribute('href').replace('#scene-', ''));
+        if (!ALL && k > CUR) { e.preventDefault(); unlockTo(k, true); }
+      });
+    });
     wirePage();
     update();
     requestAnimationFrame(function () { update(); });
@@ -1904,6 +1935,8 @@ var M = (function () {
   }
   async function runExploration(ex, i, card) {
     var focus = ex.focus ? document.getElementById('scene-' + ex.focus) : document.querySelector('.scene');
+    var fk = stageOfScene(ex.focus);
+    if (fk > CUR && !ALL) unlockTo(fk, false);
     showNarrator(ex, i, false);
     if (focus) {
       var r = focus.getBoundingClientRect();
@@ -1947,6 +1980,83 @@ var M = (function () {
     document.addEventListener('pointerup', function () { if (!DRAG) FAST = false; });
   }
 
+  // ================================================================== progressive reveal: one idea at a time
+  // Stages = groups of scenes (a scene with gate:false joins the previous one), then the general rule,
+  // the explorations, and the wrap-up. Later stages stay collapsed until the learner presses Continue.
+  // Collapsed content stays in the DOM (readable text, working sidebar); "Show everything" opens all.
+  var STAGES = [], CUR = 0, ALL = false, pill = null;
+  function stageOfScene(id) {
+    for (var k = 0; k < STAGES.length; k++) if (STAGES[k].scenes.indexOf(String(id)) >= 0) return k;
+    return -1;
+  }
+  function buildStages() {
+    STAGES = [];
+    DATA.scenes.forEach(function (sc, i) {
+      var node = document.getElementById('scene-' + sc.id); if (!node) return;
+      if (!STAGES.length || (i > 0 && sc.gate !== false)) STAGES.push({ els: [], scenes: [], ctls: [], num: i + 1, title: sc.title });
+      var st = STAGES[STAGES.length - 1];
+      st.els.push(node); st.scenes.push(sc.id); st.pause = sc.pause;
+    });
+    var tail = [[['#rule'], 'The general rule'], [['#explore'], 'Try it yourself: two guided explorations'], [['#insights', '#sources'], 'The key idea, a limitation, and the sources']];
+    tail.forEach(function (t) {
+      var els = t[0].map(function (q) { return $(q); }).filter(function (n) { return n && n.style.display !== 'none'; });
+      if (els.length) STAGES.push({ els: els, scenes: [], ctls: [], title: t[1], pause: '' });
+    });
+    Object.keys(CTL).forEach(function (id) {
+      var k = CTL[id].scene != null ? stageOfScene(CTL[id].scene) : 0;
+      if (k > 0) STAGES[k].ctls.push(CTLDOM[id]);
+    });
+    STAGES.forEach(function (st, k) {
+      if (k === STAGES.length - 1) return;
+      var nx = STAGES[k + 1], g = el('div', 'gate');
+      g.innerHTML = (st.pause ? '<div class="ponder"><div class="eyebrow">Pause and ponder</div><p>' + md(st.pause) + '</p></div>' : '') +
+        '<button class="btn gate-btn" type="button"><span>Continue</span><span class="nx">' + (nx.num ? '<b>' + nx.num + '.</b> ' : '') + md(nx.title) + '</span><span aria-hidden="true">&#8595;</span></button>';
+      var last = st.els[st.els.length - 1];
+      last.parentNode.insertBefore(g, last.nextSibling);
+      g.querySelector('button').addEventListener('click', function () { unlockTo(k + 1, true); });
+      st.gate = g;
+    });
+    pill = el('button', 'guide-pill', document.body); pill.type = 'button';
+    pill.addEventListener('click', function () { ALL = !ALL; applyStages(); scheduleUpdate(); });
+    if (/all/i.test(location.hash)) ALL = true;
+    var m = location.hash.match(/^#scene-(.+)$/);
+    if (m && stageOfScene(m[1]) > 0) CUR = stageOfScene(m[1]);
+    applyStages();
+  }
+  function applyStages() {
+    STAGES.forEach(function (st, k) {
+      var open = ALL || k <= CUR;
+      st.els.forEach(function (e) { e.classList.toggle('locked', !open); });
+      st.ctls.forEach(function (b) { if (b) b.classList.toggle('locked', !open); });
+      if (st.gate) st.gate.classList.toggle('locked', ALL || k !== CUR);
+    });
+    document.querySelectorAll('#rail a').forEach(function (a) {
+      a.classList.toggle('lockd', !ALL && stageOfScene(a.getAttribute('href').replace('#scene-', '')) > CUR);
+    });
+    if (pill) {
+      pill.innerHTML = ALL ? '&#9654; Step by step' : 'Show everything';
+      pill.setAttribute('aria-pressed', ALL ? 'true' : 'false');
+      pill.style.display = STAGES.length > 1 ? '' : 'none';
+    }
+  }
+  function unlockTo(k, scroll) {
+    k = Math.min(k, STAGES.length - 1);
+    if (k < 0) return;
+    var from = CUR;
+    if (k > CUR) {
+      CUR = k; applyStages();
+      for (var j = from + 1; j <= CUR; j++) {
+        STAGES[j].els.forEach(function (e) {
+          e.querySelectorAll('.viz').forEach(function (v) { v.textContent = ''; });   // replay the creation animations
+          e.classList.remove('revealing'); void e.offsetWidth; e.classList.add('revealing');
+        });
+        STAGES[j].ctls.forEach(function (b) { if (b) { b.classList.remove('fresh'); void b.offsetWidth; b.classList.add('fresh'); } });
+      }
+      scheduleUpdate();
+    }
+    if (scroll) { var tgt = STAGES[k].els[0]; setTimeout(function () { tgt.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }, 40); }
+  }
+
   // public API used by generated render() code
   kit.text = kit.note;
   kit.color = function (c) { return col(c); };
@@ -1957,7 +2067,7 @@ var M = (function () {
   window.P2P = { state: state, setControl: setControl, errors: function () { return ERRORS.slice(); }, result: function () { return result; } };
 })();
 </script>
-<script id="p2p-data" type="application/json">{"title": "Scaled dot-product attention, one arrow at a time", "hook": "Three tokens, each asking a question. How does each one decide whom to listen to — and how much?", "why": "Attention is how a Transformer lets every token pull information from every other token. It is just three small steps: compare, normalize, mix. With 2-dimensional vectors we can watch all three happen.", "symbols": [{"key": "Q", "meaning": "queries: one row per token, what it is looking for", "color": "blue"}, {"key": "K", "meaning": "keys: one row per token, what it can be matched on", "color": "green"}, {"key": "V", "meaning": "values: one row per token, the content that gets mixed", "color": "purple"}, {"key": "d_k", "meaning": "dimension of queries and keys (here 2)", "color": "gold"}, {"key": "w_ij", "meaning": "weight that query i puts on key j (our notation)", "color": "yellow"}, {"key": "o_i", "meaning": "output for query i: a weighted average of values (our notation)", "color": "teal"}], "scenes": [{"id": "s1", "title": "Compare: every query meets every key", "caption": "Each row of {Q} is a query arrow, each row of {K} a key arrow. Their dot product {q_i}·{k_j} is large when the arrows point the same way and are long. **Drag the arrow tips** and watch the score grid change. Hover a score to see which pair produced it."}, {"id": "s2", "title": "Scale: divide by √{d_k}", "caption": "Before the softmax, every score is multiplied by 1/√{d_k} (here 1/√2 ≈ 0.707). The curve shows how peaked the softmax of the inspected query's row becomes as the scores are stretched; the marker shows where scaling puts you."}, {"id": "s3", "title": "Normalize: softmax turns scores into weights", "caption": "Softmax exponentiates each score and divides by the row total, so every row of weights {w_ij} is positive and sums to 1. Bigger scores win more than proportionally."}, {"id": "s4", "title": "Mix: the output is a weighted average of values", "caption": "Each output {o_i} = Σⱼ {w_ij} {v_j}. Because the weights are positive and sum to 1, every output arrow lands inside the dashed triangle spanned by the value arrows. Drag the values and the outputs follow."}], "equation": "Attention({Q}, {K}, {V}) = softmax({Q}{K}ᵀ / √{d_k}) {V}", "equation_words": "Score every query against every key, scale by 1/√{d_k}, softmax each row into weights, and use the weights to average the values.", "explorations": [{"title": "Equal scores give equal weights", "focus": "s3", "predict": "If every query is the zero vector, all scores are 0. What weights will softmax produce?", "change": "Set every entry of {Q} to 0.", "preset": {"Q": [[0, 0], [0, 0], [0, 0]], "scale": true}, "observe": "Every weight becomes 1/3 ≈ 0.333, and every output {o_i} sits at the centre of the value triangle.", "why": "softmax(0, 0, 0) = (1/3, 1/3, 1/3): the softmax of equal numbers is uniform, whatever they are. Each output is then the plain average of the three value rows."}, {"title": "One dominant score", "focus": "s3", "predict": "Point {q_1} and {k_1} the same way and make them long (both [3, 0]). Where does {q_1}'s weight go, and what happens to {o_1}?", "change": "Set {q_1} = [3, 0] and {k_1} = [3, 0], keep scaling on, and inspect {q_1}. Then switch scaling off.", "preset": {"Q": [[3, 0], [0, 1], [0.7, 0.7]], "K": [[3, 0], [0, 1], [-1, -0.5]], "scale": true, "focus": 0}, "observe": "{q_1}·{k_1} = 9 (6.36 after scaling) dominates the row: the weight on {k_1} is ≈ 0.998 and {o_1} lands almost on {v_1}. With scaling off it gets even closer to 1.", "why": "Softmax exponentiates: e^6.36 ≈ 580 swamps e^0 = 1. Large dot products push softmax towards a hard one-hot choice — the regime the paper avoids by scaling with 1/√{d_k}."}], "takeaway": "Attention is a soft lookup: each query scores every key, softmax turns the scores into weights that sum to 1, and the output is the weighted average of the values.", "misconception": "Scaling by 1/√{d_k} never changes which key wins a row — the order of the scores is preserved — it only changes how peaked the weights are. Also, here {Q}, {K} and {V} are typed in directly; in a Transformer they are produced from the tokens by learned projections, which this demo does not train.", "grounding": {"paper": "Vaswani et al., Attention Is All You Need (2017)", "section": "Section 3.2.1: Scaled Dot-Product Attention", "equation": "Eq. (1): Attention(Q, K, V) = softmax(QKᵀ / √d_k) V", "from_paper": ["Queries and keys have dimension d_k; values have dimension d_v.", "The query is compared with all keys by dot products, each divided by √d_k, and a softmax gives the weights on the values (Eq. 1).", "For large d_k the dot products grow large in magnitude, pushing the softmax into regions with extremely small gradients; scaling by 1/√d_k counteracts this.", "If the components of q and k are independent with mean 0 and variance 1, q·k has mean 0 and variance d_k (footnote 4)."], "simplifications": ["Three tokens with d_k = d_v = 2, so every vector can be drawn as an arrow.", "Q, K and V are entered directly instead of coming from learned linear projections (Section 3.2.2).", "The names w_ij and o_i, the starting numbers, and the 'largest weight vs. multiplier' curve are ours.", "A single head, no masking, no training."]}, "controls": [{"id": "Q", "type": "matrix", "label": "queries {Q} (rows {q_1}, {q_2}, {q_3})", "sym": "Q", "min": -3, "max": 3, "step": 0.1, "value": [[1.5, 0], [0, 1], [0.7, 0.7]], "rowLabels": ["{q_1}", "{q_2}", "{q_3}"]}, {"id": "K", "type": "matrix", "label": "keys {K}", "sym": "K", "min": -3, "max": 3, "step": 0.1, "value": [[1, 0.2], [0, 1], [-1, -0.5]], "rowLabels": ["{k_1}", "{k_2}", "{k_3}"]}, {"id": "V", "type": "matrix", "label": "values {V}", "sym": "V", "min": -3, "max": 3, "step": 0.1, "value": [[2, 0], [0, 2], [-1.5, -1]], "rowLabels": ["{v_1}", "{v_2}", "{v_3}"]}, {"id": "scale", "type": "toggle", "label": "divide scores by √{d_k}", "sym": "d_k", "value": true}, {"id": "focus", "type": "select", "label": "inspect query", "options": [{"value": 0, "label": "{q_1}"}, {"value": 1, "label": "{q_2}"}, {"value": 2, "label": "{q_3}"}], "value": 0}], "source_url": "https://arxiv.org/html/1706.03762v7"}</script>
+<script id="p2p-data" type="application/json">{"title": "Scaled dot-product attention, one arrow at a time", "hook": "Three tokens, each asking a question. How does each one decide whom to listen to — and how much?", "why": "Attention is how a Transformer lets every token pull information from every other token. It is just three small steps: compare, normalize, mix. With 2-dimensional vectors we can watch all three happen.", "symbols": [{"key": "Q", "meaning": "queries: one row per token, what it is looking for", "color": "blue"}, {"key": "K", "meaning": "keys: one row per token, what it can be matched on", "color": "green"}, {"key": "V", "meaning": "values: one row per token, the content that gets mixed", "color": "purple"}, {"key": "d_k", "meaning": "dimension of queries and keys (here 2)", "color": "gold"}, {"key": "w_ij", "meaning": "weight that query i puts on key j (our notation)", "color": "yellow"}, {"key": "o_i", "meaning": "output for query i: a weighted average of values (our notation)", "color": "teal"}], "scenes": [{"id": "s1", "title": "Compare: every query meets every key", "caption": "Each row of {Q} is a query arrow, each row of {K} a key arrow. Their dot product {q_i}·{k_j} is large when the arrows point the same way and are long. **Drag the arrow tips** and watch the score grid change. Hover a score to see which pair produced it.", "pause": "{q_1} and {k_3} point in opposite directions. What sign will their score have, and how much attention should {q_1} then pay to {k_3}?"}, {"id": "s2", "title": "Scale: divide by √{d_k}", "caption": "Before the softmax, every score is multiplied by 1/√{d_k} (here 1/√2 ≈ 0.707). The curve shows how peaked the softmax of the inspected query's row becomes as the scores are stretched; the marker shows where scaling puts you.", "pause": "Scaling shrinks every score in a row by the same factor. Can it change which key wins the row?"}, {"id": "s3", "title": "Normalize: softmax turns scores into weights", "caption": "Softmax exponentiates each score and divides by the row total, so every row of weights {w_ij} is positive and sums to 1. Bigger scores win more than proportionally.", "pause": "Every row of weights is positive and sums to 1. What does that guarantee about where each output can land?"}, {"id": "s4", "title": "Mix: the output is a weighted average of values", "caption": "Each output {o_i} = Σⱼ {w_ij} {v_j}. Because the weights are positive and sum to 1, every output arrow lands inside the dashed triangle spanned by the value arrows. Drag the values and the outputs follow."}], "equation": "Attention({Q}, {K}, {V}) = softmax({Q}{K}ᵀ / √{d_k}) {V}", "equation_words": "Score every query against every key, scale by 1/√{d_k}, softmax each row into weights, and use the weights to average the values.", "explorations": [{"title": "Equal scores give equal weights", "focus": "s3", "predict": "If every query is the zero vector, all scores are 0. What weights will softmax produce?", "change": "Set every entry of {Q} to 0.", "preset": {"Q": [[0, 0], [0, 0], [0, 0]], "scale": true}, "observe": "Every weight becomes 1/3 ≈ 0.333, and every output {o_i} sits at the centre of the value triangle.", "why": "softmax(0, 0, 0) = (1/3, 1/3, 1/3): the softmax of equal numbers is uniform, whatever they are. Each output is then the plain average of the three value rows."}, {"title": "One dominant score", "focus": "s3", "predict": "Point {q_1} and {k_1} the same way and make them long (both [3, 0]). Where does {q_1}'s weight go, and what happens to {o_1}?", "change": "Set {q_1} = [3, 0] and {k_1} = [3, 0], keep scaling on, and inspect {q_1}. Then switch scaling off.", "preset": {"Q": [[3, 0], [0, 1], [0.7, 0.7]], "K": [[3, 0], [0, 1], [-1, -0.5]], "scale": true, "focus": 0}, "observe": "{q_1}·{k_1} = 9 (6.36 after scaling) dominates the row: the weight on {k_1} is ≈ 0.998 and {o_1} lands almost on {v_1}. With scaling off it gets even closer to 1.", "why": "Softmax exponentiates: e^6.36 ≈ 580 swamps e^0 = 1. Large dot products push softmax towards a hard one-hot choice — the regime the paper avoids by scaling with 1/√{d_k}."}], "takeaway": "Attention is a soft lookup: each query scores every key, softmax turns the scores into weights that sum to 1, and the output is the weighted average of the values.", "misconception": "Scaling by 1/√{d_k} never changes which key wins a row — the order of the scores is preserved — it only changes how peaked the weights are. Also, here {Q}, {K} and {V} are typed in directly; in a Transformer they are produced from the tokens by learned projections, which this demo does not train.", "grounding": {"paper": "Vaswani et al., Attention Is All You Need (2017)", "section": "Section 3.2.1: Scaled Dot-Product Attention", "equation": "Eq. (1): Attention(Q, K, V) = softmax(QKᵀ / √d_k) V", "from_paper": ["Queries and keys have dimension d_k; values have dimension d_v.", "The query is compared with all keys by dot products, each divided by √d_k, and a softmax gives the weights on the values (Eq. 1).", "For large d_k the dot products grow large in magnitude, pushing the softmax into regions with extremely small gradients; scaling by 1/√d_k counteracts this.", "If the components of q and k are independent with mean 0 and variance 1, q·k has mean 0 and variance d_k (footnote 4)."], "simplifications": ["Three tokens with d_k = d_v = 2, so every vector can be drawn as an arrow.", "Q, K and V are entered directly instead of coming from learned linear projections (Section 3.2.2).", "The names w_ij and o_i, the starting numbers, and the 'largest weight vs. multiplier' curve are ours.", "A single head, no masking, no training."]}, "controls": [{"id": "Q", "type": "matrix", "label": "queries {Q} (rows {q_1}, {q_2}, {q_3})", "sym": "Q", "min": -3, "max": 3, "step": 0.1, "value": [[1.5, 0], [0, 1], [0.7, 0.7]], "rowLabels": ["{q_1}", "{q_2}", "{q_3}"]}, {"id": "K", "type": "matrix", "label": "keys {K}", "sym": "K", "min": -3, "max": 3, "step": 0.1, "value": [[1, 0.2], [0, 1], [-1, -0.5]], "rowLabels": ["{k_1}", "{k_2}", "{k_3}"]}, {"id": "V", "type": "matrix", "label": "values {V}", "sym": "V", "min": -3, "max": 3, "step": 0.1, "value": [[2, 0], [0, 2], [-1.5, -1]], "rowLabels": ["{v_1}", "{v_2}", "{v_3}"], "scene": "s4"}, {"id": "scale", "type": "toggle", "label": "divide scores by √{d_k}", "sym": "d_k", "value": true, "scene": "s2"}, {"id": "focus", "type": "select", "label": "inspect query", "options": [{"value": 0, "label": "{q_1}"}, {"value": 1, "label": "{q_2}"}, {"value": 2, "label": "{q_3}"}], "value": 0, "scene": "s2"}], "source_url": "https://arxiv.org/html/1706.03762v7"}</script>
 <script>function compute(s) {
   const dk = s.K[0].length;
   const scores = M.matmul(s.Q, M.transpose(s.K));           // q_i · k_j

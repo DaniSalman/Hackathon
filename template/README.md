@@ -12,8 +12,16 @@ One generic page template. The model never writes HTML, CSS or animation code: i
 | `prompt_kit.md` | system prompt: 3b1b teaching rules + reply contract + kit API (~1.4k tokens) |
 | `fixtures/*.txt` | hand-written replies for the public examples; `entropy.txt` doubles as the one-shot example |
 | `assemble.py` | `parse_reply(text)` + `build_page(parts, case)` → single self-contained HTML (CSP blocks all network) |
-| `validate.py` | `validate(reply)` → structure checks + runs compute/tests/live checks in QuickJS (Node fallback for local dev) |
+| `validate.py` | `validate(reply)` → structure checks; runs compute, tests and live checks; runs render against a mock kit (crashes, NaN/"undefined" in text, wrong scenes, empty scenes, bad bindings). QuickJS, Node fallback for local dev |
 | `prompting.py` | `system_prompt()` and `user_prompt(case)` |
+
+## Pacing (one idea at a time)
+
+The page reveals itself in stages: scene 1 → Continue → scene 2 → … → general rule → explorations → key idea, limitation and sources.
+The model controls the pacing with three optional fields: `scenes[i].pause` (a "pause and ponder" question shown above the
+Continue button), `scenes[i].gate: false` (show this scene together with the previous one) and `controls[j].scene` (the input
+appears in the sidebar when that scene is revealed). Hidden content stays in the DOM, "Show everything" (top right) or `#all`
+in the URL opens every section, and "Try it" unlocks what it needs.
 
 ## Pipeline integration (one generation call, validate, targeted repair only on failure)
 

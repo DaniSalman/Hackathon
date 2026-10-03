@@ -9,19 +9,25 @@
     {"key": "H", "meaning": "entropy: average uncertainty, in bits", "color": "yellow"}
   ],
   "scenes": [
-    {"id": "s1", "title": "Each outcome adds −{p_i} log₂ {p_i} bits",
-     "caption": "Drag the blue bars to reshape the distribution; the others rescale so that the {p_i} always sum to 1. Each outcome contributes −{p_i} log₂ {p_i} bits, and {H} is the total. Every contribution sits on the same curve: rare outcomes are very surprising but rarely happen, near-certain ones happen often but surprise nobody."}
+    {"id": "s1", "title": "Start with the odds",
+     "caption": "Here are {n} = 4 possible outcomes with probabilities {p_i}. **Drag a bar** (or use the sliders): the others rescale so the {p_i} always add up to 1.",
+     "pause": "Which shape would leave you most unsure about the next outcome, and which one least?"},
+    {"id": "s2", "title": "Each outcome adds −{p_i} log₂ {p_i} bits",
+     "caption": "Shannon's measure gives every outcome a share of the uncertainty, −{p_i} log₂ {p_i}. All shares lie on one curve: rare outcomes are surprising but rarely happen, near-certain ones happen often but surprise nobody.",
+     "pause": "When should the shares add up to exactly 0?"},
+    {"id": "s3", "title": "Add the shares: entropy {H}",
+     "caption": "{H} is the sum of the shares. It is 0 bits when one outcome is certain and reaches its maximum, log₂ {n} bits, when all {n} outcomes are equally likely."}
   ],
   "equation": "{H} = −Σ {p_i} log₂ {p_i}",
   "equation_words": "Weight each outcome's surprise, −log₂ {p_i}, by how often it happens, {p_i}, and add them up.",
   "explorations": [
-    {"title": "Certainty means zero bits", "focus": "s1",
+    {"title": "Certainty means zero bits", "focus": "s3",
      "predict": "If outcome 1 is guaranteed ({p_i} = 1 for it, 0 for the rest), how many bits do you learn from seeing the outcome?",
      "change": "Set {n} = 4 and drag the first bar all the way to 1.",
      "preset": {"n": 4, "p": [1, 0, 0, 0]},
-     "observe": "{H} drops to exactly 0 bits and every contribution bar vanishes.",
+     "observe": "{H} drops to exactly 0 bits and every share vanishes.",
      "why": "log₂ 1 = 0, so the certain outcome adds nothing, and outcomes with {p_i} = 0 add nothing because p log p → 0 as p → 0 (the convention 0 · log 0 = 0)."},
-    {"title": "Equal odds give the most uncertainty", "focus": "s1",
+    {"title": "Equal odds give the most uncertainty", "focus": "s3",
      "predict": "With {n} = 4 outcomes, which distribution makes {H} as large as possible, and how large?",
      "change": "Make all four bars equal (0.25 each).",
      "preset": {"n": 4, "p": [0.25, 0.25, 0.25, 0.25]},
@@ -29,7 +35,7 @@
      "why": "For fixed {n}, {H} is maximal and equal to log₂ {n} when all {p_i} = 1/{n}: each outcome adds −0.25 · log₂ 0.25 = 0.5 bits."}
   ],
   "takeaway": "{H} measures how unpredictable a source is: 0 bits when the outcome is certain, and log₂ {n} bits, its maximum, when all {n} outcomes are equally likely.",
-  "misconception": "Entropy belongs to the whole distribution, not to one outcome or to what a message means. Also, a single term −{p_i} log₂ {p_i} peaks at {p_i} = 1/e ≈ 0.37 (about 0.53 bits), not at 0.5 — yet the total {H} is largest when all outcomes are equal.",
+  "misconception": "Entropy belongs to the whole distribution, not to one outcome or to what a message means. Also, a single share −{p_i} log₂ {p_i} peaks at {p_i} = 1/e ≈ 0.37 (about 0.53 bits), not at 0.5, yet the total {H} is largest when all outcomes are equal.",
   "grounding": {
     "paper": "C. E. Shannon, A Mathematical Theory of Communication (1948)",
     "section": "Part I, Section 6: Choice, Uncertainty and Entropy",
@@ -64,19 +70,23 @@ function compute(s) {
 </compute>
 <render>
 function render(s, r, kit) {
-  kit.bars('#s1', r.p, { bind: 'p', sym: 'p_i', labels: r.labels, axis: 'outcome', width: 0.5, decimals: 2,
+  kit.bars('#s1', r.p, { bind: 'p', sym: 'p_i', labels: r.labels, axis: 'outcome', decimals: 2, height: 240,
     title: 'Probabilities {p_i}', ref: { y: 1 / s.n, label: 'uniform 1/{n}' } });
-  kit.bars('#s1', r.contrib, { sym: 'H', labels: r.labels, axis: 'outcome', width: 0.5, max: 0.6, decimals: 3,
-    title: 'Contribution −{p_i} log₂ {p_i} (bits)' });
-  kit.plot('#s1', { width: 0.5, height: 240, domain: [0, 1], yRange: [0, 0.6],
-    title: 'Every outcome sits on the curve −p log₂ p',
+  kit.bars('#s2', r.contrib, { sym: 'H', labels: r.labels, axis: 'outcome', width: 0.5, max: 0.6, decimals: 3,
+    title: 'Share of each outcome, −{p_i} log₂ {p_i} (bits)' });
+  kit.plot('#s2', { width: 0.5, height: 230, domain: [0, 1], yRange: [0, 0.6],
+    title: 'Every share sits on the curve −p log₂ p',
     series: [{ fn: x => -M.xlog2x(x), sym: 'H', label: '−p log₂ p', area: true }],
     points: r.p.map((p, i) => ({ x: p, y: r.contrib[i], label: r.labels[i], sym: 'p_i', axis: 'outcome', index: i })),
     vlines: [{ x: 1 / Math.E, label: '1/e' }], xLabel: 'probability p', yLabel: 'bits' });
-  kit.readout('#s1', { width: 0.5, label: 'Entropy {H}', value: r.H, unit: 'bits', sym: 'H', decimals: 3,
+  kit.readout('#s3', { width: 0.5, label: 'Entropy {H}', value: r.H, unit: 'bits', sym: 'H', decimals: 3,
     min: 0, max: r.Hmax, compare: { value: r.Hmax, label: 'max = log₂ {n}' },
-    note: r.H < 1e-12 ? 'No uncertainty: the outcome is known in advance.' : 'Equal to about ' + kit.fmt(Math.pow(2, r.H), 2) + ' equally likely outcomes.' });
-  kit.formula('#s1', '{H} = ' + r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
+    note: r.H < 1e-12 ? 'No uncertainty: the outcome is known in advance.' : 'As uncertain as ' + kit.fmt(Math.pow(2, r.H), 2) + ' equally likely outcomes.' });
+  kit.steps('#s3', [
+    { label: 'shares (bits)', value: r.contrib, sym: 'p_i' },
+    { label: '{H}', value: r.H, op: 'add them', sym: 'H', unit: 'bits' }
+  ], { width: 0.5, decimals: 3 });
+  kit.formula('#s3', '{H} = ' + r.contrib.map(c => kit.fmt(c, 3)).join(' + ') + ' = ' + kit.fmt(r.H, 3) + ' bits');
 }
 </render>
 <checks>

@@ -1340,7 +1340,7 @@
     D.hook = hook;
     D.symbols = asArray(D.symbols).map(function (s) { return { key: String(s.key || s.sym || s.symbol || s.name || ''), meaning: s.meaning || s.desc || '', color: s.color }; }).filter(function (s) { return s.key; });
     D.scenes = asArray(D.scenes).length ? asArray(D.scenes) : [{ id: 's1', title: '', caption: '' }];
-    D.scenes = D.scenes.map(function (sc, i) { return { id: String(sc.id || 's' + (i + 1)), title: sc.title || '', caption: sc.caption || sc.text || '' }; });
+    D.scenes = D.scenes.map(function (sc, i) { return { id: String(sc.id || 's' + (i + 1)), title: sc.title || '', caption: sc.caption || sc.text || '', pause: sc.pause || sc.ponder || '', gate: sc.gate }; });
     D.explorations = asArray(D.explorations);
     D.grounding = D.grounding || {};
     return D;
@@ -1404,6 +1404,13 @@
     if (!Object.keys(CTL).length) $('#controls').innerHTML = '<p class="ctl-help">No inputs for this page.</p>';
     Object.keys(CTL).forEach(function (k) { buildCtl(CTL[k]); });
     $('#reset').addEventListener('click', function () { closeNarrator(); animateTo(DEFAULTS, 700); });
+    buildStages();
+    document.querySelectorAll('#rail a').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        var k = stageOfScene(a.getAttribute('href').replace('#scene-', ''));
+        if (!ALL && k > CUR) { e.preventDefault(); unlockTo(k, true); }
+      });
+    });
     wirePage();
     update();
     requestAnimationFrame(function () { update(); });
@@ -1419,6 +1426,8 @@
   }
   async function runExploration(ex, i, card) {
     var focus = ex.focus ? document.getElementById('scene-' + ex.focus) : document.querySelector('.scene');
+    var fk = stageOfScene(ex.focus);
+    if (fk > CUR && !ALL) unlockTo(fk, false);
     showNarrator(ex, i, false);
     if (focus) {
       var r = focus.getBoundingClientRect();
@@ -1460,6 +1469,83 @@
     });
     addEventListener('keydown', function (e) { if (e.key === 'Escape') closeNarrator(); });
     document.addEventListener('pointerup', function () { if (!DRAG) FAST = false; });
+  }
+
+  // ================================================================== progressive reveal: one idea at a time
+  // Stages = groups of scenes (a scene with gate:false joins the previous one), then the general rule,
+  // the explorations, and the wrap-up. Later stages stay collapsed until the learner presses Continue.
+  // Collapsed content stays in the DOM (readable text, working sidebar); "Show everything" opens all.
+  var STAGES = [], CUR = 0, ALL = false, pill = null;
+  function stageOfScene(id) {
+    for (var k = 0; k < STAGES.length; k++) if (STAGES[k].scenes.indexOf(String(id)) >= 0) return k;
+    return -1;
+  }
+  function buildStages() {
+    STAGES = [];
+    DATA.scenes.forEach(function (sc, i) {
+      var node = document.getElementById('scene-' + sc.id); if (!node) return;
+      if (!STAGES.length || (i > 0 && sc.gate !== false)) STAGES.push({ els: [], scenes: [], ctls: [], num: i + 1, title: sc.title });
+      var st = STAGES[STAGES.length - 1];
+      st.els.push(node); st.scenes.push(sc.id); st.pause = sc.pause;
+    });
+    var tail = [[['#rule'], 'The general rule'], [['#explore'], 'Try it yourself: two guided explorations'], [['#insights', '#sources'], 'The key idea, a limitation, and the sources']];
+    tail.forEach(function (t) {
+      var els = t[0].map(function (q) { return $(q); }).filter(function (n) { return n && n.style.display !== 'none'; });
+      if (els.length) STAGES.push({ els: els, scenes: [], ctls: [], title: t[1], pause: '' });
+    });
+    Object.keys(CTL).forEach(function (id) {
+      var k = CTL[id].scene != null ? stageOfScene(CTL[id].scene) : 0;
+      if (k > 0) STAGES[k].ctls.push(CTLDOM[id]);
+    });
+    STAGES.forEach(function (st, k) {
+      if (k === STAGES.length - 1) return;
+      var nx = STAGES[k + 1], g = el('div', 'gate');
+      g.innerHTML = (st.pause ? '<div class="ponder"><div class="eyebrow">Pause and ponder</div><p>' + md(st.pause) + '</p></div>' : '') +
+        '<button class="btn gate-btn" type="button"><span>Continue</span><span class="nx">' + (nx.num ? '<b>' + nx.num + '.</b> ' : '') + md(nx.title) + '</span><span aria-hidden="true">&#8595;</span></button>';
+      var last = st.els[st.els.length - 1];
+      last.parentNode.insertBefore(g, last.nextSibling);
+      g.querySelector('button').addEventListener('click', function () { unlockTo(k + 1, true); });
+      st.gate = g;
+    });
+    pill = el('button', 'guide-pill', document.body); pill.type = 'button';
+    pill.addEventListener('click', function () { ALL = !ALL; applyStages(); scheduleUpdate(); });
+    if (/all/i.test(location.hash)) ALL = true;
+    var m = location.hash.match(/^#scene-(.+)$/);
+    if (m && stageOfScene(m[1]) > 0) CUR = stageOfScene(m[1]);
+    applyStages();
+  }
+  function applyStages() {
+    STAGES.forEach(function (st, k) {
+      var open = ALL || k <= CUR;
+      st.els.forEach(function (e) { e.classList.toggle('locked', !open); });
+      st.ctls.forEach(function (b) { if (b) b.classList.toggle('locked', !open); });
+      if (st.gate) st.gate.classList.toggle('locked', ALL || k !== CUR);
+    });
+    document.querySelectorAll('#rail a').forEach(function (a) {
+      a.classList.toggle('lockd', !ALL && stageOfScene(a.getAttribute('href').replace('#scene-', '')) > CUR);
+    });
+    if (pill) {
+      pill.innerHTML = ALL ? '&#9654; Step by step' : 'Show everything';
+      pill.setAttribute('aria-pressed', ALL ? 'true' : 'false');
+      pill.style.display = STAGES.length > 1 ? '' : 'none';
+    }
+  }
+  function unlockTo(k, scroll) {
+    k = Math.min(k, STAGES.length - 1);
+    if (k < 0) return;
+    var from = CUR;
+    if (k > CUR) {
+      CUR = k; applyStages();
+      for (var j = from + 1; j <= CUR; j++) {
+        STAGES[j].els.forEach(function (e) {
+          e.querySelectorAll('.viz').forEach(function (v) { v.textContent = ''; });   // replay the creation animations
+          e.classList.remove('revealing'); void e.offsetWidth; e.classList.add('revealing');
+        });
+        STAGES[j].ctls.forEach(function (b) { if (b) { b.classList.remove('fresh'); void b.offsetWidth; b.classList.add('fresh'); } });
+      }
+      scheduleUpdate();
+    }
+    if (scroll) { var tgt = STAGES[k].els[0]; setTimeout(function () { tgt.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }, 40); }
   }
 
   // public API used by generated render() code

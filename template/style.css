@@ -70,7 +70,8 @@ button { font: inherit; }
 .rail a .n { color: var(--blue); font-family: var(--serif); margin-right: 6px; }
 
 /* ---------- scenes ---------- */
-.scenes { display: flex; flex-direction: column; gap: 22px; }
+.scenes { display: block; }
+.scenes > * + * { margin-top: 22px; }
 .scene { background: linear-gradient(180deg, var(--panel), var(--bg2)); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; scroll-margin-top: 16px; position: relative; }
 .scene.focus { animation: scenefocus 1.4s ease-out; }
 @keyframes scenefocus { 0% { box-shadow: 0 0 0 0 rgba(255, 228, 94, 0); } 25% { box-shadow: 0 0 0 2px rgba(255, 228, 94, .75), 0 0 40px -6px rgba(255, 228, 94, .5); } 100% { box-shadow: 0 0 0 0 rgba(255, 228, 94, 0); } }
@@ -301,6 +302,29 @@ input.num { -moz-appearance: textfield; }
 .src-grid li { margin: 5px 0; }
 .disclaimer { margin: 18px 0 0; font-size: 13.5px; color: var(--mute); border-top: 1px solid var(--line); padding-top: 12px; }
 .foot { color: var(--mute); font-size: 12.5px; padding: 10px 16px 120px; text-align: center; }
+
+/* ---------- progressive reveal ---------- */
+.locked { max-height: 0 !important; overflow: hidden !important; opacity: 0 !important; margin-top: 0 !important; margin-bottom: 0 !important;
+  padding-top: 0 !important; padding-bottom: 0 !important; border-width: 0 !important; pointer-events: none; }
+.revealing { animation: reveal .9s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes reveal { from { opacity: 0; transform: translateY(24px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+.gate { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 2px 0 10px; }
+.gate::before { content: ""; width: 1.5px; height: 30px; background: linear-gradient(rgba(255, 228, 94, 0), var(--yellow)); }
+main > .gate { margin: -26px 0 -16px; }
+.ponder { max-width: 680px; background: rgba(255, 228, 94, .05); border: 1px dashed rgba(255, 228, 94, .45); border-radius: 14px; padding: 14px 22px; }
+.ponder .eyebrow { font: 600 11px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--yellow); }
+.ponder p { margin: 8px 0 0; font: 19px/1.45 var(--serif); color: #fff; }
+.gate-btn { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; padding: 11px 20px; border-radius: 999px; animation: nudge 2.6s ease-in-out infinite; }
+.gate-btn .nx { font-weight: 500; opacity: .85; }
+.gate-btn .sym { color: #0b0c0e; }
+.gate-btn:hover { animation: none; }
+@keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+.ctl.fresh { animation: ctlnew 2s ease-out; border-radius: 10px; }
+@keyframes ctlnew { 0% { background: transparent; } 15% { background: rgba(255, 228, 94, .09); box-shadow: 0 0 0 6px rgba(255, 228, 94, .09); } 100% { background: transparent; box-shadow: none; } }
+.rail a.lockd { opacity: .38; border-style: dashed; }
+.guide-pill { position: fixed; top: 12px; right: 14px; z-index: 66; background: rgba(22, 25, 31, .92); color: var(--ink2); border: 1px solid var(--line2);
+  border-radius: 999px; padding: 6px 14px; font-size: 12.5px; cursor: pointer; backdrop-filter: blur(6px); }
+.guide-pill:hover { color: #fff; border-color: var(--ink2); }
 
 /* ---------- tooltip ---------- */
 .tip { position: fixed; left: 0; top: 0; z-index: 80; pointer-events: none; opacity: 0; transition: opacity .12s; max-width: 320px;
