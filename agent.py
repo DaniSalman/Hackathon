@@ -29,7 +29,7 @@ from validator import Validator
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 START = time.monotonic()
 MAX_SECONDS = 560            # hard limit is 600 s per case; keep a margin to write the page
-MAX_CALLS = 8                # hard limit is 10 requests per case, retries included (generate, re-ask, 2 repairs, 2 reviews, 2 retries)
+MAX_CALLS = 9                # hard limit is 10 requests per case, retries included (generate, re-ask, 2 repairs, 2 reviews, 3 retries)
 MAX_COMPLETION = 29000       # hard limit is 30,000 completion tokens per case
 GEN_TOKENS = 14000           # cap for the generation call (reasoning tokens count inside this)
 FIX_TOKENS = 7000            # cap for each repair call

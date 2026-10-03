@@ -59,7 +59,7 @@ case.json ─▶ 1 generation call ─▶ validator/ ─────────
 - **Repairs only for visible problems:** a test oracle off by ≤ 5 % or a live check failing only in an extreme test state is
   logged as a warning; crashes, NaN, broken bindings or presets, empty scenes, larger disagreements and review or
   calculator findings trigger a repair.
-- **Budgets** (per case): ≤ 8 requests including retries (limit 10), ≤ 29,000 reserved completion tokens (limit 30,000),
+- **Budgets** (per case): ≤ 9 requests including retries (limit 10), ≤ 29,000 reserved completion tokens (limit 30,000),
   560 s deadline (limit 600 s). Reasoning is off by default (`P2P_REASONING`). Measured on both practice cases: `low`
   reasoning cost 19–37k tokens and 80–225 s per case (once its hidden reasoning exhausted the output cap and returned
   nothing), while `off` cost 9–17k tokens and 24–41 s with equally correct pages; on the attention case `minimal` spent
