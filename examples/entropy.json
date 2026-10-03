@@ -1,0 +1,7 @@
+{
+  "source_url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf",
+  "focus": "Explain discrete entropy in bits. Let the learner edit nonnegative weights and the number of active outcomes. Show normalized probabilities, individual contributions and total entropy. Compare certainty and uniform outcomes. Correctly handle zero probabilities.",
+  "audience": "Engineering undergraduate with basic probability and logarithms",
+  "excerpt": "Practice paraphrase of Shannon, A Mathematical Theory of Communication, Section 6: For a discrete probability distribution p_1,...,p_n, the entropy with base-two logarithms is H = -sum_i p_i log2(p_i). A zero-probability term contributes zero by continuity. A certain outcome has zero entropy. Uniform probabilities maximize entropy for a fixed number of outcomes, giving log2(n) bits.",
+  "source_note": "This practice excerpt is a paraphrase, not a verbatim quotation. Replace with the supplied source excerpt during assessment."
+}
